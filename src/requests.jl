@@ -89,7 +89,8 @@ function from_config(::PropagateRequestBuilder, config, input_field;
     )
 end
 
-function from_pulse(::PropagateRequestBuilder, pulse, linear_operator = "gvd", nonlinear_operator = "kerr"; kwargs...)
+function from_pulse(::PropagateRequestBuilder, pulse, linear_operator = _default_linear_operator,
+                    nonlinear_operator = _default_nonlinear_operator; kwargs...)
     options = _normalize_solver_aliases(kwargs)
     haskey(options, :propagation_distance) || throw(ArgumentError("high-level propagate requires propagation_distance"))
     pulse_spec = _normalize_pulse_spec(pulse)
@@ -124,11 +125,21 @@ function from_pulse(::PropagateRequestBuilder, pulse, linear_operator = "gvd", n
     pulse_period = isnothing(pulse_spec.pulse_period) ? pulse_spec.delta_time * temporal_samples : Float64(pulse_spec.pulse_period)
     frequency_grid = isnothing(pulse_spec.frequency_grid) ? _default_frequency_grid(temporal_samples, pulse_spec.delta_time) : pulse_spec.frequency_grid
 
-    linear_expr, linear_constants = _resolve_operator_spec("linear", linear_operator, 0)
-    nonlinear_expr, nonlinear_constants = _resolve_operator_spec("nonlinear", nonlinear_operator, length(linear_constants))
+    linear_spec = _coerce_operator_spec("linear", linear_operator)
+    nonlinear_spec = _coerce_operator_spec("nonlinear", nonlinear_operator)
+    bindings = Dict{String, Float64}()
+    for params in (linear_spec.params, nonlinear_spec.params)
+        params === nothing && continue
+        for (name, value) in params
+            bindings[String(name)] = Float64(value)
+        end
+    end
+    # Temporal runs compile the linear operator in the dispersion_factor
+    # context, which provides w; tensor runs compile it as linear_factor.
     runtime = RuntimeOperators(
-        linear_factor_expr = linear_expr,
-        nonlinear_expr = nonlinear_expr,
+        linear_factor_fn = tensor_mode ? linear_spec.fn : nothing,
+        dispersion_factor_fn = tensor_mode ? nothing : linear_spec.fn,
+        nonlinear_fn = nonlinear_spec.fn,
         nonlinear_model = Int(get(options, :nonlinear_model, NONLINEAR_MODEL_EXPR)),
         nonlinear_gamma = Float64(get(options, :nonlinear_gamma, 0.0)),
         raman_fraction = Float64(get(options, :raman_fraction, 0.0)),
@@ -136,9 +147,7 @@ function from_pulse(::PropagateRequestBuilder, pulse, linear_operator = "gvd", n
         raman_tau2 = Float64(get(options, :raman_tau2, 0.0320)),
         shock_omega0 = Float64(get(options, :shock_omega0, 0.0)),
         raman_response_time = get(options, :raman_response_time, nothing),
-        constants = vcat(linear_constants, nonlinear_constants),
-        constant_bindings = nothing,
-        auto_capture_constants = false,
+        constant_bindings = isempty(bindings) ? nothing : bindings,
     )
 
     prepared = prepare_sim_config(length(pulse_spec.samples);

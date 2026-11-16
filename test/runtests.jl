@@ -23,10 +23,10 @@ function zero_operator_case()
         SpatialGrid()
     )
     phys = physics_config(
-        linear_factor_expr = "0",
-        linear_expr = "exp(h*D)",
-        potential_expr = "0",
-        nonlinear_expr = "0"
+        linear_factor_fn = (A, wt) -> 0.0,
+        linear_fn = (A, D, h) -> exp(h * D),
+        potential_fn = (x, y) -> 0.0,
+        nonlinear_fn = (A, I) -> 0.0
     )
     exec = default_execution_options(
         backend_type = VECTOR_BACKEND_CPU,
@@ -87,8 +87,8 @@ function high_level_zero_operator_case()
     )
     result = NLOLib.propagate(
         pulse,
-        "none",
-        "none";
+        (A, w) -> 0.0,
+        (A, I) -> 0.0;
         t_span = (0.0, zmax),
         t_eval = collect(range(0.0, zmax, length = 8)),
         first_step = 1e-3,
@@ -115,3 +115,5 @@ end
     zero_operator_case()
     high_level_zero_operator_case()
 end
+
+include("test_translate_callable.jl")

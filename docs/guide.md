@@ -30,11 +30,7 @@ D(\omega)=i\left(\frac{\beta_2}{2}\right)\omega^2-\frac{\alpha}{2},
 N(A)=i\gamma A|A|^2
 \f]
 
-so the runtime constants are
-
-- `c0 = beta2 / 2`
-- `c1 = alpha / 2`
-- `c2 = gamma`
+so the operators are written as Julia functions of the runtime symbols:
 
 ```julia
 using NLOLib
@@ -44,11 +40,17 @@ alpha = 0.10
 gamma = 1.20
 
 phys = NLOLib.physics_config(
-    dispersion_factor_expr = "i*c0*w*w-c1",
-    nonlinear_expr = "i*c2*A*I",
-    constants = [0.5 * beta2, 0.5 * alpha, gamma],
+    dispersion_factor_fn = (A, w) -> im * (beta2 / 2) * w^2 - alpha / 2,
+    nonlinear_fn = (A, I) -> im * gamma * A * I,
 )
 ```
+
+Each function is traced once into the compiled operator program, so captured
+numbers are inlined and the body may use `+ - * / ^`, unary minus and
+`exp log sqrt sin cos`. `NLOLib.runtime_context_symbols(context)` lists the
+symbols each slot accepts. The high-level `propagate(pulse, linear, nonlinear)`
+takes the same kind of functions, or an `OperatorSpec(fn = f, params = Dict(...))`
+to give named values their own runtime constant slot.
 
 ## Build-Tree Usage
 

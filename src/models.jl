@@ -1,10 +1,14 @@
+"""
+    RuntimeOperators(; linear_factor_fn, linear_fn, potential_fn, dispersion_factor_fn, dispersion_fn, nonlinear_fn, ...)
+
+Runtime operators for `prepare_sim_config`. Each operator is a Julia function of
+its context's symbols, traced once at setup into the compiled operator VM; see
+`NLOLib.runtime_context_symbols` for the symbols each slot accepts.
+`dispersion_factor_fn` / `dispersion_fn` are aliases of `linear_factor_fn` /
+`linear_fn` that also accept `w`. `constant_bindings` optionally maps names to
+values that should each occupy a runtime constant slot.
+"""
 Base.@kwdef struct RuntimeOperators
-    linear_factor_expr::Union{Nothing, String} = nothing
-    linear_expr::Union{Nothing, String} = nothing
-    potential_expr::Union{Nothing, String} = nothing
-    dispersion_factor_expr::Union{Nothing, String} = nothing
-    dispersion_expr::Union{Nothing, String} = nothing
-    nonlinear_expr::Union{Nothing, String} = nothing
     linear_factor_fn::Any = nothing
     linear_fn::Any = nothing
     potential_fn::Any = nothing
@@ -18,9 +22,7 @@ Base.@kwdef struct RuntimeOperators
     raman_tau2::Float64 = 0.0320
     shock_omega0::Float64 = 0.0
     raman_response_time::Any = nothing
-    constants::Vector{Float64} = Float64[]
     constant_bindings::Union{Nothing, Dict{String, Float64}} = nothing
-    auto_capture_constants::Bool = true
 end
 
 Base.@kwdef mutable struct PulseSpec
@@ -38,8 +40,13 @@ Base.@kwdef mutable struct PulseSpec
     potential_grid::Union{Nothing, Vector{ComplexF64}} = nothing
 end
 
+"""
+    OperatorSpec(; fn, params = nothing)
+
+A high-level operator: `fn` is a Julia function of the context's symbols and
+`params` an optional `name => value` mapping bound as runtime constants.
+"""
 Base.@kwdef struct OperatorSpec
-    expr::Union{Nothing, String} = nothing
     fn::Any = nothing
     params::Any = nothing
 end

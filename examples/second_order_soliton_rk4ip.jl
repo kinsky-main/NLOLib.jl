@@ -145,8 +145,8 @@ function main(argv = ARGS)
             pulse_period = n * dt,
             frequency_grid = ComplexF64.(omega),
         )
-        linear = OperatorSpec(expr = "i*beta2*w*w-loss", params = Dict("beta2" => 0.5 * beta2, "loss" => 0.5 * alpha))
-        nonlinear = OperatorSpec(expr = "i*gamma*A*I", params = Dict("gamma" => gamma))
+        linear = (A, w) -> im * (0.5 * beta2) * w^2 - 0.5 * alpha
+        nonlinear = (A, I) -> im * gamma * A * I
         exec = default_execution_options(backend_type = VECTOR_BACKEND_CPU, fft_backend = FFT_BACKEND_FFTW)
         storage = storage_kwargs(db;
             example_name = example_name,

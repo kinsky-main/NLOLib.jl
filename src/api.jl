@@ -48,13 +48,24 @@ function _decode_run_id(chars::NTuple{STORAGE_RUN_ID_MAX, Cchar})
     return String(data)
 end
 
+"""
+    physics_config(; linear_factor_fn, linear_fn, potential_fn, dispersion_factor_fn,
+                   dispersion_fn, nonlinear_fn, nonlinear_model, ..., constant_bindings)
+
+Build a `PhysicsConfig` for the low-level `propagate(sim, phys, field)` path.
+Each `*_fn` is a Julia function of its context's symbols (see
+`NLOLib.runtime_context_symbols`), traced once here; omitted operators use the
+library defaults. `constant_bindings` optionally maps names to values that each
+occupy a runtime constant slot. The returned `PreparedValue` keeps the traced
+operator text alive for as long as it is referenced.
+"""
 function physics_config(;
-    linear_factor_expr::Union{Nothing, AbstractString} = nothing,
-    linear_expr::Union{Nothing, AbstractString} = nothing,
-    potential_expr::Union{Nothing, AbstractString} = nothing,
-    dispersion_factor_expr::Union{Nothing, AbstractString} = nothing,
-    dispersion_expr::Union{Nothing, AbstractString} = nothing,
-    nonlinear_expr::Union{Nothing, AbstractString} = nothing,
+    linear_factor_fn = nothing,
+    linear_fn = nothing,
+    potential_fn = nothing,
+    dispersion_factor_fn = nothing,
+    dispersion_fn = nothing,
+    nonlinear_fn = nothing,
     nonlinear_model::Integer = NONLINEAR_MODEL_EXPR,
     nonlinear_gamma::Real = 0.0,
     raman_fraction::Real = 0.0,
@@ -62,8 +73,18 @@ function physics_config(;
     raman_tau2::Real = 0.0,
     shock_omega0::Real = 0.0,
     raman_response_time = nothing,
-    constants = ()
+    constant_bindings = nothing
 )
+    constants = Float64[]
+    lower(fn, context) = _lower_operator!(constants, fn, context, constant_bindings)
+    linear_factor_expr = lower(linear_factor_fn, RUNTIME_CONTEXT_LINEAR_FACTOR)
+    linear_expr = lower(linear_fn, RUNTIME_CONTEXT_LINEAR)
+    potential_expr = lower(potential_fn, RUNTIME_CONTEXT_POTENTIAL)
+    dispersion_factor_expr = lower(dispersion_factor_fn, RUNTIME_CONTEXT_DISPERSION_FACTOR)
+    dispersion_expr = lower(dispersion_fn, RUNTIME_CONTEXT_DISPERSION)
+    nonlinear_expr = lower(nonlinear_fn, RUNTIME_CONTEXT_NONLINEAR)
+    length(constants) <= RUNTIME_OPERATOR_CONSTANTS_MAX ||
+        throw(ArgumentError("constant_bindings exceeds RUNTIME_OPERATOR_CONSTANTS_MAX"))
     keepalive = (
         linear_factor_expr,
         linear_expr,
@@ -88,7 +109,7 @@ function physics_config(;
         Cdouble(shock_omega0),
         _complex_ptr_or_null(raman_response_time),
         Csize_t(raman_response_time === nothing ? 0 : length(raman_response_time)),
-        Csize_t(min(length(constants), RUNTIME_OPERATOR_CONSTANTS_MAX)),
+        Csize_t(length(constants)),
         _constants_tuple(constants)
     )
     return PreparedValue(value, keepalive)
