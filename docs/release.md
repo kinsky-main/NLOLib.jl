@@ -5,7 +5,8 @@ from a [Julia artifact](https://pkgdocs.julialang.org/v1/artifacts/). The
 package itself is pure Julia; the per-platform tarballs holding `nlolib` and its
 runtime dependencies are built by
 [`.github/workflows/release-julia.yml`](../.github/workflows/release-julia.yml)
-and attached to the same GitHub release as the MATLAB toolbox.
+and attached to this repository's GitHub release for the tag. The library is
+built from the core repository at the commit `CORE_REF` pins.
 
 The Vulkan + VkFFT + statically linked SQLite toolchain is why the binary is
 built here rather than through Yggdrasil/BinaryBuilder: the release matrix
@@ -29,11 +30,8 @@ there. Without a Vulkan driver the CPU backend runs unchanged.
 
 ### From a build tree
 
-A built checkout keeps working with no artifact at all:
-
-```bash
-cmake --build build --config Release --target julia_stage
-```
+A built checkout keeps working with no artifact at all; see
+[development.md](development.md) for the build itself.
 
 ```julia
 using Pkg
@@ -42,44 +40,39 @@ using NLOLib
 NLOLib.load()
 ```
 
-`julia/src/lib.jl` resolves the library in this order:
+`src/lib.jl` resolves the library in this order:
 
 1. an explicit path passed to `NLOLib.load(path)`
 2. `ENV["NLOLIB_LIBRARY"]`
-3. the installed `nlolib` artifact, when `julia/Artifacts.toml` binds one for
-   this platform and it is present in the depot
-4. the development paths — `<package>/lib`, `../python[/Debug|/Release]`,
+3. the installed `nlolib` artifact, when `Artifacts.toml` binds one for this
+   platform and it is present in the depot
+4. the development paths — `<package>/lib`, and, when this repository is the
+   `julia/` submodule of the core repository, `../python[/Debug|/Release]` and
    `../build/julia_package/lib`
 
 `julia_stage` does not copy `Artifacts.toml` into the staged package, so the
 staged tree always loads the library it was just built with. If you work
-directly out of `julia/` in a checkout that also has the artifact installed, set
+directly out of a checkout that also has the artifact installed, set
 `NLOLIB_LIBRARY` to pick the build you mean.
 
 ## Releasing
 
 ### 1. Tag
 
-Versions come from `project(nlolib VERSION ...)` in the root `CMakeLists.txt`,
-and `julia/Project.toml` carries a copy of it. The two agree at every commit —
-nothing advances the version automatically — so a tag can be cut from any
-commit. The tag is the bare version with no `v` prefix, matching
-`release-mltbx.yml`, and the workflow's `verify` job fails if the tag and the
-copy disagree: the registry records the Julia version while the artifact
-download URLs are built from the tag.
+The package version lives in `Project.toml` and is independent of the core
+library version; `CORE_REF` names the core commit the artifacts are built from.
+Nothing advances the version automatically. The tag is the bare version with no
+`v` prefix, and the workflow's `verify` job fails if the tag and `Project.toml`
+disagree: the registry records the version from `Project.toml` while the
+artifact download URLs are built from the tag.
 
-Advancing the version is a deliberate step, one command that rewrites
-`CMakeLists.txt`, both literal copies and `sbom.cdx.json` together:
-
-```bash
-python tools/release/check_versions.py --bump minor
-```
-
-Commit that, then tag it:
+In a pull request, set the new version in `Project.toml` and, if the release
+needs a newer core, the new commit SHA in `CORE_REF`. Merge it, then tag the
+merge commit:
 
 ```bash
-git tag "$(python tools/release/read_version.py)"
-git push origin "$(python tools/release/read_version.py)"
+git tag "$(python tools/check_version.py)"
+git push origin "$(python tools/check_version.py)"
 ```
 
 The workflow then, per platform (`ubuntu-24.04` and `windows-2025`, pinned):
@@ -107,13 +100,13 @@ the workflow push to `main`:
 2. you reproduce it locally from the published assets and commit it.
 
 ```bash
-julia julia/tools/bind_artifacts.jl --version <version> --download \
-    --toml julia/Artifacts.toml \
+julia tools/bind_artifacts.jl --version <version> --download \
+    --toml Artifacts.toml \
     x86_64-linux-gnu x86_64-w64-mingw32
 ```
 
 Then diff it against the asset the workflow published; they must be identical.
-Commit `julia/Artifacts.toml` through a normal pull request.
+Commit `Artifacts.toml` through a normal pull request.
 
 `--download` matters: gzip records a timestamp, so rebuilding a tarball from the
 same tree yields a different `sha256` even though the `git-tree-sha1` is
@@ -142,22 +135,19 @@ Two details the script exists to get right:
 Nothing in this repository submits to General; the first registration is
 deliberately manual.
 
-The first version that can be registered is the first release whose tag
-carries this workflow. `1.17.0` predates it — `release-julia.yml` is not in
-that commit's tree, so no Julia tarballs exist for it and none can be made:
-`workflow_dispatch` resolves the workflow file at the ref it is dispatched
-against, and that ref has no such file. `1.17.0` is a MATLAB-only release
-permanently, and the Julia package starts at the next bumped version.
+The first version that can be registered is the first release tagged in this
+repository: the artifact URLs in `Artifacts.toml` point at this repository's
+releases, so only a tag pushed here has tarballs to bind.
 
 1. Install the [JuliaRegistrator](https://github.com/JuliaRegistries/Registrator)
-   GitHub App on `kinsky-main/nlo-rk4ip-code`.
-2. Comment on the commit that added `julia/Artifacts.toml`:
+   GitHub App on `kinsky-main/NLOLib.jl`.
+2. Comment on the commit that added `Artifacts.toml`:
 
    ```
-   @JuliaRegistrator register subdir=julia
+   @JuliaRegistrator register
    ```
 
-   `subdir=julia` is required: the package is not at the repository root.
+   No `subdir` is needed: the package is at the repository root.
 3. Registrator opens a pull request against `JuliaRegistries/General`. Watch its
    AutoMerge checks and respond there.
 
@@ -165,18 +155,18 @@ Later versions repeat steps 1–2 of this guide and then the same comment on the
 new binding commit.
 
 TagBot is deliberately **not** installed. It creates `v`-prefixed tags from
-merged registry pull requests, and this repository's release workflows trigger
+merged registry pull requests, and this repository's release workflow triggers
 on bare version tags that a human pushes; TagBot's tags would either do nothing
 or double-publish.
 
 #### What AutoMerge will say
 
-- `julia/Project.toml` currently has `[compat]` for `julia`, `Artifacts` and
+- `Project.toml` currently has `[compat]` for `julia`, `Artifacts` and
   `Libdl`. AutoMerge requires a compat entry for every dependency and an upper
   bound on each non-stdlib one; there are no non-stdlib dependencies, so this is
   already sufficient.
 - **A new package must be registered at `0.0.1`, `0.1.0` or `1.0.0` to
-  auto-merge.** The project version is well past that, so the first
+  auto-merge.** The package version is well past that, so the first
   registration will not auto-merge. It is not rejected either: the pull
   request is labelled for a General maintainer, who merges it by hand after
   the usual waiting period for new packages. That is a one-time cost, and
@@ -196,29 +186,22 @@ or double-publish.
 
 #### Version numbering
 
-The version is frozen between releases and advances only when someone runs
-`check_versions.py --bump`. **A registered Julia package depends on that, and
-reintroducing a bump-on-commit hook would silently break the artifact
-binding.** The reason is step 2: the binding commit records a
-`git-tree-sha1` and a URL that both name the version its tag published. If a
-hook bumped the version as that commit landed, the commit would declare one
-version in `julia/Project.toml` while binding the artifact of another, and the
-next tag would publish a package whose artifact URL points at the previous
-release's assets. `Pkg` would install it and fail on a hash mismatch, or
-worse, succeed with the wrong binary.
+The version is frozen between releases and advances only when someone edits
+`Project.toml`. **A registered Julia package depends on that.** The reason is
+step 2: the binding commit records a `git-tree-sha1` and a URL that both name
+the version its tag published. If anything bumped the version as that commit
+landed, the commit would declare one version in `Project.toml` while binding
+the artifact of another, and the next tag would publish a package whose
+artifact URL points at the previous release's assets. `Pkg` would install it
+and fail on a hash mismatch, or worse, succeed with the wrong binary.
 
-A registry version can also never be reused and must increase monotonically,
-so a per-commit bump burns a version per commit and leaves the registered
-history mostly gaps. Both problems are gone at the root rather than worked
-around: no commit moves the version, so nothing has to be resynchronised at
-release time. The invariant is enforced by the `test_version_copies_match`
-and `test_sbom_pins_match` CTest cases, the pre-commit hook, and the `verify`
-job of each release workflow.
+A registry version can also never be reused and must increase monotonically.
 
 ## Files
 
 - `.github/workflows/release-julia.yml` — build, test, publish
-- `julia/tools/bind_artifacts.jl` — writes and merges `Artifacts.toml`
-- `julia/tools/check_artifact_load.jl` — fails unless the library loaded from
+- `tools/bind_artifacts.jl` — writes and merges `Artifacts.toml`
+- `tools/check_artifact_load.jl` — fails unless the library loaded from
   the artifact
-- `julia/Artifacts.toml` — committed per release, generated by the above
+- `Artifacts.toml` — committed per release, generated by the above
+- `CORE_REF` — the core commit the artifacts are built from

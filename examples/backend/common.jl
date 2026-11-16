@@ -8,22 +8,12 @@ function centered_spatial_grid(num_samples::Integer, delta::Real)
     return (collect(0:Int(num_samples) - 1) .- 0.5 * Float64(num_samples - 1)) .* Float64(delta)
 end
 
-function repo_root_from(path::AbstractString)
-    current = normpath(dirname(path))
-    for _ in 1:8
-        if isfile(joinpath(current, "CMakeLists.txt")) && isdir(joinpath(current, "src"))
-            return current
-        end
-        parent = dirname(current)
-        parent == current && break
-        current = parent
-    end
-    error("unable to locate repository root from $path")
-end
-
+# The NLOLib package root, from an example script or a backend helper, in a
+# source checkout (<root>/examples) or a staged package (<root>/examples/julia).
 function package_root_from(path::AbstractString)
     candidates = [
-        normpath(joinpath(dirname(path), "..", "..", "julia")),
+        normpath(joinpath(dirname(path), "..")),
+        normpath(joinpath(dirname(path), "..", "..")),
         normpath(joinpath(dirname(path), "..", "..", "..")),
     ]
     for candidate in candidates
@@ -47,7 +37,7 @@ function build_example_parser(example_slug::AbstractString, description::Abstrac
         "--db-path"
         help = "SQLite path for example metadata and solver snapshots."
         arg_type = String
-        default = joinpath(repo_root_from(@__FILE__), "examples", "output", "db", string(example_slug, ".sqlite3"))
+        default = joinpath(dirname(dirname(@__FILE__)), "output", "db", string(example_slug, ".sqlite3"))
         "--output-dir"
         help = "Directory for generated figures."
         arg_type = String

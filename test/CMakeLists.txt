@@ -6,13 +6,13 @@ if(NOT Julia_EXECUTABLE)
 endif()
 
 add_test(NAME test_julia_api_smoke
-  COMMAND "${Julia_EXECUTABLE}" "--project=${CMAKE_SOURCE_DIR}/julia" "${CMAKE_SOURCE_DIR}/julia/test/runtests.jl"
+  COMMAND "${Julia_EXECUTABLE}" "--project=${CMAKE_CURRENT_LIST_DIR}/.." "${CMAKE_CURRENT_LIST_DIR}/runtests.jl"
 )
 
 add_test(NAME test_julia_example_soliton
-  COMMAND "${Julia_EXECUTABLE}" "--project=${CMAKE_SOURCE_DIR}/examples/julia"
+  COMMAND "${Julia_EXECUTABLE}" "--project=${CMAKE_CURRENT_LIST_DIR}/../examples"
           "-e"
-          "using Pkg; Pkg.instantiate(); include(raw\"${CMAKE_SOURCE_DIR}/examples/julia/second_order_soliton_rk4ip.jl\"); main(String[])"
+          "using Pkg; Pkg.instantiate(); include(raw\"${CMAKE_CURRENT_LIST_DIR}/../examples/second_order_soliton_rk4ip.jl\"); main(String[])"
 )
 
 set(_NLOLIB_TEST_PATH "$ENV{PATH}")

@@ -5,18 +5,18 @@ name: release-julia
 # artifact rather than a build tree, and publishes the tarballs plus a
 # ready-to-commit Artifacts.toml as GitHub release assets.
 #
+# The native library is built from the core nlolib sources, checked out at the
+# revision CORE_REF pins.
+#
 # Why Artifacts.toml is not written by this workflow into the repository: an
 # entry binds a git-tree-sha1 to a download URL and a tarball sha256, so it can
 # only be written once the tarballs are published and their URLs exist. Rather
 # than have CI push to a branch, the generated file ships as a release asset and
-# a human commits it in a follow-up pull request -- see docs/release_julia.md,
-# which also covers the registration step. Nothing here talks to the General
-# registry.
+# a human commits it in a follow-up pull request -- see docs/release.md, which
+# also covers the registration step. Nothing here talks to the General registry.
 #
-# Structured to mirror .github/workflows/release-mltbx.yml: the same bare
-# version tag, the same pinned runner images, the same Vulkan and Visual Studio
-# setup, and a publish job that is the only tag-gated step, so a
-# workflow_dispatch run exercises everything except the upload.
+# The publish job is the only tag-gated step, so a workflow_dispatch run
+# exercises everything except the upload.
 
 on:
   push:
@@ -32,7 +32,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # The compat floor in julia/Project.toml. Artifact tree hashes are computed
+  # The compat floor in Project.toml. Artifact tree hashes are computed
   # with this release, so the oldest Julia we claim to support is the one that
   # agreed the hashes.
   JULIA_VERSION: '1.10'
@@ -43,48 +43,64 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      core_ref: ${{ steps.core.outputs.ref }}
     steps:
       - uses: actions/checkout@v4
 
-      # CMakeLists.txt is the single source of truth and nothing advances it
-      # automatically, so julia/Project.toml must agree with it at every
-      # commit. The check runs on a dispatch run too, because that run is the
-      # rehearsal for the tag; only the tag comparison itself is conditional.
-      #
-      # This workflow needs both halves. The registry records the version
-      # from julia/Project.toml while the artifact download URLs are built
-      # from the tag, so a drift between them would register a version whose
-      # artifact lives under a different tag.
-      - name: Check the version against the tag and the packaged copies
+      # Project.toml is the source of truth for this package's version, which is
+      # released independently of the core library. The tag is a bare version
+      # and has to equal it: the published artifacts carry the version from
+      # the file, so a tag that disagreed would name something else. The check
+      # runs on a dispatch run too, because that run is the rehearsal for the
+      # tag; only the tag comparison itself is conditional.
+      - name: Check the version and the tag
         id: version
         shell: bash
         run: |
           set -euo pipefail
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            version="$(python3 tools/release/check_versions.py --tag "${GITHUB_REF_NAME}")"
+            version="$(python3 tools/check_version.py --tag "${GITHUB_REF_NAME}")"
           else
-            version="$(python3 tools/release/check_versions.py)"
+            version="$(python3 tools/check_version.py)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Project version: $version"
+          echo "Package version: $version"
 
-      # The step above only compares version strings. These two gate the other
-      # two things a release tree has to have right, and nothing else in this
-      # workflow would catch either: sbom.cdx.json is the bill of materials for
-      # the pinned dependencies compiled into the binaries this tag publishes,
-      # and every binding re-declares the C API enums and limits in its own
-      # source with no compile-time link to the header, so a tag could
-      # otherwise ship a binding that disagrees with the library it loads.
-      #
-      # Both are CTest cases (test_sbom_pins_match, test_api_parity) that read
-      # source text and need no build, and ci.yml does not run on tags, so this
-      # is the only place a release passes through them.
-      - name: Check the SBOM pins and the binding API constants
+      # CORE_REF pins the core library revision this release is built from. A
+      # full commit SHA, not a branch or tag, so the same tag here always
+      # builds the same native library.
+      - name: Read the pinned core revision
+        id: core
         shell: bash
         run: |
           set -euo pipefail
-          python3 tools/write_sbom.py --check
-          python3 tools/check_api_parity.py
+          ref="$(tr -d '[:space:]' < CORE_REF)"
+          if ! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::CORE_REF must hold a full 40-character commit SHA of kinsky-main/nlo-rk4ip-code, found '$ref'."
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "Core revision: $ref"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: kinsky-main/nlo-rk4ip-code
+          ref: ${{ steps.core.outputs.ref }}
+          path: core
+
+      # The version check above only compares strings. These two gate the other
+      # things a release tree has to have right: the core's sbom.cdx.json is the
+      # bill of materials for the pinned dependencies compiled into the binaries
+      # this tag publishes, and this binding re-declares the C API enums and
+      # limits in its own source with no compile-time link to the header, so a
+      # tag could otherwise ship a binding that disagrees with the library it
+      # loads. Both read source text and need no build.
+      - name: Check the core SBOM pins and the binding API constants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 core/tools/write_sbom.py --check
+          python3 core/tools/check_api_parity.py --bindings julia --julia-dir .
 
   build:
     name: Build ${{ matrix.triplet }}
@@ -94,7 +110,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Pinned, not -latest, for the same reason as release-mltbx.yml:
+          # Pinned, not -latest:
           # ubuntu-26.04 ships a GCC that will not compile our pinned glslang.
           - os: ubuntu-24.04
             triplet: x86_64-linux-gnu
@@ -104,6 +120,13 @@ jobs:
       VERSION: ${{ needs.verify.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+
+      # The core library sources, at the revision CORE_REF pins.
+      - uses: actions/checkout@v4
+        with:
+          repository: kinsky-main/nlo-rk4ip-code
+          ref: ${{ needs.verify.outputs.core_ref }}
+          path: core
 
       # The Vulkan backend needs the loader import library and glslangValidator
       # at build time. CMake fetches the headers itself, but errors out on these.
@@ -129,11 +152,11 @@ jobs:
 
       # runner-images currently routes every Windows label to Visual Studio 2026
       # (actions/runner-images#14571). The CRT is linked statically
-      # (CMAKE_MSVC_RUNTIME_LIBRARY in the root CMakeLists.txt), so this is not
-      # about redistributables: release-mltbx.yml pins VS 2022 because MATLAB
-      # will not accept VS 2026, and pinning the same toolchain here keeps every
-      # shipped Windows nlolib.dll coming off one compiler we have tested,
-      # instead of releasing a Julia binary from an untried one.
+      # (CMAKE_MSVC_RUNTIME_LIBRARY in the core CMakeLists.txt), so this is not
+      # about redistributables: the MATLAB toolbox release pins VS 2022 because
+      # MATLAB will not accept VS 2026, and pinning the same toolchain here
+      # keeps every shipped Windows nlolib.dll coming off one compiler we have
+      # tested, instead of releasing a Julia binary from an untried one.
       - name: Install Visual Studio 2022 build tools (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -156,7 +179,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          source tools/release/cmake_options.sh
+          source tools/cmake_options.sh
           options=(
             INSTALL_GIT_HOOKS=OFF
             BUMP_PATCH_ON_BUILD=OFF
@@ -175,13 +198,18 @@ jobs:
           if [ "$RUNNER_OS" != "Windows" ]; then
             options+=(CMAKE_BUILD_TYPE=Release)
           fi
+          # NLOLIB_JULIA_DIR points the core build at this checkout, which is
+          # what creates the julia_stage target. Passed unverified: CMake
+          # normalises the path, so it would not compare equal as a string.
+          NLO_SOURCE_DIR=core
+          NLO_EXTRA_CMAKE_ARGS=("-DNLOLIB_JULIA_DIR=${GITHUB_WORKSPACE}")
           nlo_configure_verified build "${options[@]}"
 
       - name: Stage the Julia package
         run: cmake --build build --config Release --parallel --target julia_stage
 
       # The artifact must carry the library's runtime dependencies, which
-      # julia_stage copies next to it via cmake/copy_runtime_deps.cmake. Print
+      # julia_stage copies next to it via the core's cmake/copy_runtime_deps.cmake. Print
       # the staged tree and the library's dependencies so a dry run shows
       # exactly what users would download.
       - name: Inspect the staged library
@@ -213,7 +241,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          julia julia/tools/bind_artifacts.jl \
+          julia tools/bind_artifacts.jl \
             --version "$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
             --toml "dist/artifacts-${{ matrix.triplet }}.toml" \
@@ -252,7 +280,7 @@ jobs:
       VERSION: ${{ needs.verify.outputs.version }}
     steps:
       # A plain checkout with no build directory: none of the development
-      # fallback paths in julia/src/lib.jl exist here, so the library can only
+      # fallback paths in src/lib.jl exist here, so the library can only
       # come from the artifact.
       - uses: actions/checkout@v4
 
@@ -281,13 +309,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          julia julia/tools/bind_artifacts.jl \
+          julia tools/bind_artifacts.jl \
             --version "$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
             --install \
-            --toml julia/Artifacts.toml \
+            --toml Artifacts.toml \
             "${{ matrix.triplet }}=dist/nlolib-julia-${VERSION}-${{ matrix.triplet }}.tar.gz"
-          if ! diff -u "dist/artifacts-${{ matrix.triplet }}.toml" julia/Artifacts.toml; then
+          if ! diff -u "dist/artifacts-${{ matrix.triplet }}.toml" Artifacts.toml; then
             echo "::error::The artifact hash computed here differs from the one the build job published."
             exit 1
           fi
@@ -296,14 +324,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          julia --project=julia julia/tools/check_artifact_load.jl
+          julia --project=. tools/check_artifact_load.jl
 
-      # julia/test/runtests.jl pins backend_type = VECTOR_BACKEND_CPU and
+      # test/runtests.jl pins backend_type = VECTOR_BACKEND_CPU and
       # fft_backend = FFT_BACKEND_FFTW for every propagation, so nothing here
       # needs a GPU or a Vulkan driver at runtime.
       - name: Run the package tests against the artifact
         shell: bash
-        run: julia --project=julia -e 'using Pkg; Pkg.test()'
+        run: julia --project=. -e 'using Pkg; Pkg.test()'
 
   bundle:
     name: Bundle Artifacts.toml
@@ -328,7 +356,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          julia julia/tools/bind_artifacts.jl --merge \
+          julia tools/bind_artifacts.jl --merge \
             --toml dist/Artifacts.toml \
             dist/artifacts-*.toml
           cd dist
@@ -338,9 +366,9 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## julia/Artifacts.toml for ${VERSION}"
+            echo "## Artifacts.toml for ${VERSION}"
             echo
-            echo "Commit this file to julia/Artifacts.toml, then register; see docs/release_julia.md."
+            echo "Commit this file as Artifacts.toml, then register; see docs/release.md."
             echo
             echo '```toml'
             cat dist/Artifacts.toml
@@ -381,10 +409,8 @@ jobs:
           ls "dist/nlolib-julia-${VERSION}-x86_64-linux-gnu.tar.gz"
           ls "dist/nlolib-julia-${VERSION}-x86_64-w64-mingw32.tar.gz"
 
-      # release-mltbx.yml publishes to the same tag and owns the release notes,
-      # so this only ever creates the release if it does not exist yet and never
-      # edits its notes. The retry covers the window where both workflows reach
-      # this point at once.
+      # Creates the release if it does not exist yet and never edits its notes,
+      # so a re-run after a partial upload only replaces the assets.
       - name: Upload the Julia assets
         shell: bash
         env:

@@ -12,7 +12,6 @@ include(joinpath(_BACKEND_DIR, "storage.jl"))
 
 export centered_time_grid
 export centered_spatial_grid
-export repo_root_from
 export package_root_from
 export build_example_parser
 export parse_example_args
