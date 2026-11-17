@@ -24,6 +24,16 @@ function runtime_functions_case()
     pulse_limits = query_runtime_limits(pulse = gaussian_pulse(), exec_options = CPU)
     @test pulse_limits.max_num_recorded_samples_in_memory > 0
 
+    # A tensor pulse is sized as nt*nx*ny samples: doubling nt doubles the
+    # working set, where counting the samples twice (N x N) would quadruple it.
+    tensor_limits(nt) = query_runtime_limits(
+        pulse = PulseSpec(samples = ones(ComplexF64, nt * 8 * 8), delta_time = 0.1,
+                          tensor_nt = nt, tensor_nx = 8, tensor_ny = 8),
+        exec_options = CPU)
+    small, large = tensor_limits(32), tensor_limits(64)
+    @test small.estimated_required_working_set_bytes > 0
+    @test 1.5 < large.estimated_required_working_set_bytes / small.estimated_required_working_set_bytes < 2.5
+
     set_log_level("warn")
     @test_throws ArgumentError set_log_level("loud")
     set_log_level()
