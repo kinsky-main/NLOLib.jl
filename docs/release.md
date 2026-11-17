@@ -165,19 +165,15 @@ or double-publish.
   `Libdl`. AutoMerge requires a compat entry for every dependency and an upper
   bound on each non-stdlib one; there are no non-stdlib dependencies, so this is
   already sufficient.
-- **A new package must be registered at `0.0.1`, `0.1.0` or `1.0.0` to
-  auto-merge.** The package version is well past that, so the first
-  registration will not auto-merge. It is not rejected either: the pull
-  request is labelled for a General maintainer, who merges it by hand after
-  the usual waiting period for new packages. That is a one-time cost, and
-  every later release passes AutoMerge normally.
-
-  Registering `1.0.0` first does **not** avoid it. AutoMerge also checks that
-  a new version follows the previous one, accepting only the next patch,
-  minor or major, so the jump from `1.0.0` to the real version needs the same
-  manual merge — and `1.0.0` would additionally need a tag and artifact
-  tarballs of its own, which do not exist. Register at the real version and
-  accept the one manual merge.
+- A new package waits a mandatory three days before it is merged, however
+  clean its checks are. The first registration, `1.20.1`, met every guideline
+  and was scheduled to auto-merge after that wait; the first version does not
+  have to be `0.0.1`, `0.1.0` or `1.0.0`.
+- A later version must follow the previous registered one: only the next
+  patch, minor or major auto-merges. Skipping a version leaves the pull
+  request for a General maintainer to merge by hand.
+- Any comment on the registry pull request blocks the auto-merge unless it
+  contains `[noblock]`.
 - The repository is public and GPL-2.0 licensed with a `LICENSE` file at the
   root, which satisfies the license check.
 - AutoMerge installs and imports the package on its own runners. `NLOLib` does
