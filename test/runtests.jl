@@ -94,15 +94,25 @@ function records_case()
         propagation_distance = 0.1, record_z = [0.0, 0.025, 0.1], exec_options = CPU)
     @test explicit.z_axis == [0.0, 0.025, 0.1]
     @test size(explicit.records, 2) == 3
-    # Core 9417e92 returns the final field when one record is requested, even at
-    # an explicit position, and z_axis reports where that field is.
+    # A single explicit position returns the field there, the same as the
+    # matching record of a multi-record run; final is that last returned record.
     drift = (A, w) -> im * 0.2 * w
     single = propagate(pulse, drift, zero_nonlinear;
         propagation_distance = 0.1, record_z = [0.05], num_records = 1, exec_options = CPU)
+    several = propagate(pulse, drift, zero_nonlinear;
+        propagation_distance = 0.1, record_z = [0.0, 0.05, 0.1], exec_options = CPU)
     final_drift = propagate(pulse, drift, zero_nonlinear;
         propagation_distance = 0.1, num_records = 1, exec_options = CPU)
-    @test single.z_axis == [0.1]
-    @test single.final ≈ final_drift.final rtol = 1e-12
+    @test single.z_axis == [0.05]
+    @test size(single.records, 2) == 1
+    @test single.records[:, 1] ≈ several.records[:, 2] rtol = 1e-10
+    @test single.final == single.records[:, 1]
+    @test !isapprox(single.final, final_drift.final, rtol = 1e-6)
+    # final is the last returned record, at the last record_z, not at the distance.
+    early = propagate(pulse, drift, zero_nonlinear;
+        propagation_distance = 0.1, record_z = [0.0, 0.05], exec_options = CPU)
+    @test early.z_axis[end] == 0.05
+    @test early.final ≈ several.records[:, 2] rtol = 1e-10
     @test_throws ArgumentError propagate(pulse, zero_linear, zero_nonlinear;
         propagation_distance = 0.1, record_z = [0.0, 0.1], num_records = 3)
 

@@ -126,8 +126,10 @@ end
     PropagationResult
 
 The result of `propagate`. `records` is samples x records, `z_axis` the
-position of each record and `final` the last record (empty when
-`return_records = false`). `step_history` is set only with
+position of each record and `final` the last returned record,
+`records[:, end]` (empty when `return_records = false`). `final` is the field at
+`propagation_distance` only when the last record is there: a `record_z` that
+ends earlier gives the field at its last position. `step_history` is set only with
 `capture_step_history = true` and `storage_result` only with `storage`.
 `meta` holds `"preset"`, `"records_requested"`, `"records_written"`,
 `"backend_requested"`, `"coupled"` and `"status"`.

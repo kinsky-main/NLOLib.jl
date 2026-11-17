@@ -54,7 +54,10 @@ run does not provide is an `ArgumentError`.
 Every option of `propagate` is a named keyword, and a misspelled one is a
 `MethodError`. Records come back at `record_z` when given, otherwise as
 `num_records` evenly spaced records, where `num_records = 1` is the final
-field only. Enum-style options are lowercase strings:
+field only. `result.final` is the last returned record, so it is the field at
+`propagation_distance` only when the records reach it: with a `record_z` that
+ends earlier it is the field at the last listed position. Enum-style options
+are lowercase strings:
 
 ```julia
 result = propagate(pulse, linear, nonlinear;

@@ -46,7 +46,10 @@ each spend one of the 16 runtime constant slots.
 
 Records: with `record_z`, one record at each of those positions; otherwise
 `num_records == 1` returns only the final field, and any other `num_records`
-that many records spaced evenly from 0 to `propagation_distance`. `preset`
+that many records spaced evenly from 0 to `propagation_distance`. The result's
+`final` is the last returned record, which is the field at
+`propagation_distance` only when the records reach it; a `record_z` that ends
+earlier gives the field at its last position. `preset`
 (`"fast"`, `"balanced"` or `"accuracy"`) supplies the step sizes, tolerance and
 `num_records` an explicit option does not set.
 
@@ -103,9 +106,7 @@ function propagate(pulse, linear_operator, nonlinear_operator;
             throw(ArgumentError("num_records ($(num_records)) must be unset or equal length(record_z) ($(length(explicit_z)))"))
         count = length(explicit_z)
         mode = PROPAGATE_OUTPUT_DENSE
-        # Core 9417e92 returns the field at propagation_distance whenever one
-        # record is requested, so a single position reports where that field is.
-        z_axis = count == 1 ? [distance] : explicit_z
+        z_axis = explicit_z
     else
         count = num_records === nothing ? profile.num_records : Int(num_records)
         mode = count == 1 ? PROPAGATE_OUTPUT_FINAL_ONLY : PROPAGATE_OUTPUT_DENSE
