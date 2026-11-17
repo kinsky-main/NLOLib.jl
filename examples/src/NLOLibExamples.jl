@@ -16,6 +16,10 @@ export package_root_from
 export build_example_parser
 export parse_example_args
 export relative_l2_intensity_error
+export report_metric
+export plot_intensity_map
+export plot_curves
+export exact_linear_temporal_records
 export relative_l2_intensity_error_curve
 export nlolib_hdr_colormap
 export activate_example_theme!

@@ -92,6 +92,41 @@ function normalized_plot_data(values; normalization_peak = nothing)
     return data
 end
 
+"""
+    plot_intensity_map(x, z, data, path; xlabel, ylabel, colorbar_label, normalize, xlimits)
+
+Heatmap of `data[iz, ix]` (one row per record) over `x` and `z`, saved to `path`.
+"""
+function plot_intensity_map(x, z, data, path::AbstractString;
+                            xlabel = "x", ylabel = "Propagation distance z",
+                            colorbar_label = "Normalised intensity", normalize::Bool = true,
+                            xlimits = nothing)
+    fig = styled_figure()
+    ax = Axis(fig[1, 1], xlabel = xlabel, ylabel = ylabel)
+    values = normalize ? normalized_plot_data(data) : Float64.(data)
+    hm = heatmap!(ax, Float64.(collect(x)), Float64.(collect(z)), permutedims(values, (2, 1)),
+                  colormap = nlolib_hdr_colormap(),
+                  colorrange = normalize ? (0.0, 1.0) : extrema(values))
+    xlimits === nothing || xlims!(ax, xlimits...)
+    Colorbar(fig[1, 2], hm, label = colorbar_label)
+    return save_example_figure(path, fig)
+end
+
+"""
+    plot_curves(x, curves, path; xlabel, ylabel)
+
+Line plot of each `label => y` in `curves` against `x`, saved to `path`.
+"""
+function plot_curves(x, curves, path::AbstractString; xlabel = "x", ylabel = "y")
+    fig = styled_figure()
+    ax = Axis(fig[1, 1], xlabel = xlabel, ylabel = ylabel)
+    for (label, y) in curves
+        lines!(ax, Float64.(collect(x)), Float64.(collect(y)), label = label)
+    end
+    length(curves) > 1 && axislegend(ax, position = :rt)
+    return save_example_figure(path, fig)
+end
+
 function _evenly_spaced_indices(count::Integer; max_count::Integer)
     count > 0 || return Int[]
     max_count > 0 || error("max_count must be positive.")

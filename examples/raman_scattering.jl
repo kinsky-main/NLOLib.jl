@@ -5,6 +5,22 @@ using CairoMakie
 using FFTW
 using NLOLib
 
+# nlolib-example-parameters: begin
+n = 4096
+dt = 0.002
+beta2 = -0.01
+gamma = 1.4
+pulse_width = 0.08
+z_final = 0.4
+num_records = 80
+f_r = 0.18
+tau1 = 0.0522
+tau2 = 0.032
+shock_omega0 = 0.0
+error_tolerance = 2e-08
+# nlolib-example-parameters: end
+# Derived: step sizes z_final / 500, / 80 and / 20000.
+
 function spectral_centroid(freq_axis, spectral_intensity)
     weights = Float64.(spectral_intensity)
     numer = sum(weights .* reshape(freq_axis, 1, :), dims = 2)
@@ -99,21 +115,9 @@ function main(argv = ARGS)
     NLOLib.set_progress_options(enabled = true, milestone_percent = 2, emit_on_step_adjust = true)
     NLOLib.set_log_level("info")
     db = ExampleRunDB(args[:db_path])
-    example_name = "raman_scattering_rk4ip"
+    example_name = "raman_scattering"
     kerr_case_key = "kerr_only"
     raman_case_key = "kerr_raman_shock"
-
-    n = 2^11
-    dt = 0.002
-    beta2 = -0.01
-    gamma = 1.40
-    z_final = 0.40
-    pulse_width = 0.08
-    num_records = 120
-    f_r = 0.18
-    tau1 = 0.0522
-    tau2 = 0.0320
-    shock_omega0 = 0.0
 
     t_axis = centered_time_grid(n, dt)
     omega = 2.0 * π .* FFTW.fftfreq(n, 1.0 / dt)
@@ -132,15 +136,15 @@ function main(argv = ARGS)
         run_group = begin_group(db, example_name, isempty(args[:run_group]) ? nothing : args[:run_group])
         pulse = PulseSpec(samples = field0, delta_time = dt, pulse_period = n * dt, frequency_grid = ComplexF64.(omega))
         linear = (A, w) -> im * (0.5 * beta2) * w^2
-        exec = ExecutionOptions(backend_type = "cpu", fft_backend = "fftw")
+        exec = ExecutionOptions(backend_type = "auto")
 
         base_kwargs = (
             propagation_distance = z_final,
-            record_z = collect(range(0.0, z_final, length = num_records)),
+            num_records = num_records,
             starting_step_size = z_final / 500.0,
             max_step_size = z_final / 80.0,
             min_step_size = z_final / 20000.0,
-            error_tolerance = 2e-6,
+            error_tolerance = error_tolerance,
             exec_options = exec,
         )
 
@@ -198,7 +202,7 @@ function main(argv = ARGS)
     save_raman_plots(args[:output_dir], z_axis ./ ld, t_axis, raman_records, omega_axis, raman_spec_map, centered_num, centered_pred)
 
     println("raman scattering summary")
-    println("  centroid curve relative error = $(centroid_curve_rel_error)")
+    report_metric("centroid-curve relative error vs prediction", centroid_curve_rel_error)
     println("  final centroid shift (raman-kerr) = $(raman_centroid[end] - kerr_centroid[end])")
     println("  final predicted shift = $(predicted_centroid[end] - predicted_centroid[1])")
     return centroid_curve_rel_error

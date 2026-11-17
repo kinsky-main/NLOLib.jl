@@ -12,7 +12,7 @@ add_test(NAME test_julia_api_smoke
 add_test(NAME test_julia_example_soliton
   COMMAND "${Julia_EXECUTABLE}" "--project=${CMAKE_CURRENT_LIST_DIR}/../examples"
           "-e"
-          "using Pkg; Pkg.instantiate(); include(raw\"${CMAKE_CURRENT_LIST_DIR}/../examples/second_order_soliton_rk4ip.jl\"); main(String[])"
+          "using Pkg; Pkg.instantiate(); include(raw\"${CMAKE_CURRENT_LIST_DIR}/../examples/second_order_soliton.jl\"); main(String[])"
 )
 
 set(_NLOLIB_TEST_PATH "$ENV{PATH}")

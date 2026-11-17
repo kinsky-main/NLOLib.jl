@@ -79,13 +79,17 @@ artifact, then a build tree; `load(path)` uses that file only.
 
 ## Examples
 
-The [`examples/`](examples) directory is a Julia project of its own with
-runnable scripts: second-order and high-order GRIN solitons, Raman scattering,
-and 3D tensor dispersion.
+The [`examples/`](examples) directory is a Julia project of its own holding the
+example set shared with the Python and MATLAB bindings: `quickstart`,
+`linear_drift`, `spm`, `second_order_soliton`, `conservation_checks`,
+`raman_scattering`, `tensor_dispersion_3d`, `transverse_grin_beam`,
+`spatiotemporal_kerr_bullet`, `grin_soliton_fission`,
+`high_order_grin_soliton` and `sqlite_storage`. Each prints its validation
+metrics as `label: value` and writes its figures to `examples/output/<name>/`.
 
 ```bash
 julia --project=examples -e 'using Pkg; Pkg.instantiate()'
-julia --project=examples examples/second_order_soliton_rk4ip.jl
+julia --project=examples examples/quickstart.jl
 ```
 
 ## Documentation
