@@ -106,7 +106,9 @@ function _prepare_sim_config(pulse::PulseSpec, propagation::PropagationParams)
     spatial_values = keep(pulse.spatial_frequency_grid)
     potential_values = pulse.potential_grid
     if tensor_mode && potential_values !== nothing && length(potential_values) == nx * ny
-        potential_values = repeat(potential_values, nt)
+        # The core reads a full t-fastest volume, so a static x-y grid is
+        # broadcast along t by repeating each of its values nt times in a row.
+        potential_values = repeat(potential_values, inner = nt)
     end
     keep(potential_values)
 

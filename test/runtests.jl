@@ -142,6 +142,26 @@ function tensor_case()
     @test result.meta["coupled"] == true
     @test sum(abs2, result.final) ≈ sum(abs2, field) rtol = 1e-6
     @test size(tensor_record_view(result.final, nt, nx, ny)) == (nt, ny, nx)
+
+    # A static x-y potential grid is broadcast along t: it must give the same
+    # run as the full t-fastest volume with each x-y value repeated nt times.
+    potential_xy = ComplexF64[0.3 * (x - 2.5)^2 + 0.1 * (y - 1.5) for y in 1:ny, x in 1:nx]
+    potential_full = ComplexF64[potential_xy[y, x] for k in 1:nt, y in 1:ny, x in 1:nx]
+    run_with(grid) = propagate(
+        PulseSpec(samples = field, delta_time = 0.1, tensor_nt = nt, tensor_nx = nx, tensor_ny = ny,
+                  delta_x = 0.5, delta_y = 0.5, potential_grid = vec(grid)),
+        (A, w, kx, ky) -> im * 0.01 * w^2, (A, I, V) -> im * A * V;
+        propagation_distance = 0.5, num_records = 1, exec_options = CPU)
+    broadcast_run = run_with(potential_xy)
+    @test broadcast_run.final ≈ run_with(potential_full).final rtol = 1e-12
+    # The potential only rotates the phase at each (x, y): exp(i V z).
+    expected = field .* exp.(im .* vec(potential_full) .* 0.5)
+    phase_only = propagate(
+        PulseSpec(samples = field, delta_time = 0.1, tensor_nt = nt, tensor_nx = nx, tensor_ny = ny,
+                  delta_x = 0.5, delta_y = 0.5, potential_grid = vec(potential_xy)),
+        (A, w, kx, ky) -> 0.0, (A, I, V) -> im * A * V;
+        propagation_distance = 0.5, num_records = 1, exec_options = CPU)
+    @test phase_only.final ≈ expected rtol = 1e-8
 end
 
 function step_history_and_progress_case()
