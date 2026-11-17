@@ -108,12 +108,42 @@ function high_level_zero_operator_case()
     @test result.sol(0.025) ≈ field atol = 1e-12 rtol = 1e-12
 end
 
+function no_records_case()
+    # return_records = false sends the records only to storage, which the core
+    # requires in that case, and returns an empty result.
+    storage_is_available() || return
+    nt = 64
+    dt = 0.02
+    centered = (collect(0:nt - 1) .- nt / 2) .* dt
+    pulse = PulseSpec(samples = ComplexF64.(exp.(-(centered ./ 0.1) .^ 2)), delta_time = dt)
+    exec = default_execution_options(
+        backend_type = VECTOR_BACKEND_CPU,
+        fft_backend = FFT_BACKEND_FFTW
+    )
+    for output in ("dense", "final")
+        result = NLOLib.propagate(
+            pulse;
+            propagation_distance = 0.1,
+            output = output,
+            return_records = false,
+            sqlite_path = joinpath(mktempdir(), "run.sqlite"),
+            exec_options = exec,
+        )
+        @test result.status == NLOLIB_STATUS_OK
+        @test size(result.records) == (nt, 0)
+        @test result.final isa AbstractVector{ComplexF64}
+        @test isempty(result.final)
+        @test result.meta["records_returned"] == false
+    end
+end
+
 @testset "NLOLib Julia wrapper" begin
     load()
     @test !isempty(loaded_library_path())
     @test sizeof(NLOComplex) == 16
     zero_operator_case()
     high_level_zero_operator_case()
+    no_records_case()
 end
 
 include("test_translate_callable.jl")
