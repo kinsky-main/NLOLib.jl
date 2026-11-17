@@ -2,11 +2,13 @@ module NLOLib
 
 using Artifacts
 using Libdl
+using Printf
 
 include("types.jl")
 include("lib.jl")
 include("api.jl")
 include("models.jl")
+include("translate.jl")
 include("config.jl")
 include("requests.jl")
 include("executor.jl")

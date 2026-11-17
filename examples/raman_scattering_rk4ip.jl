@@ -131,7 +131,7 @@ function main(argv = ARGS)
     else
         run_group = begin_group(db, example_name, isempty(args[:run_group]) ? nothing : args[:run_group])
         pulse = PulseSpec(samples = field0, delta_time = dt, pulse_period = n * dt, frequency_grid = ComplexF64.(omega))
-        linear = OperatorSpec(expr = "i*beta2*w*w", params = Dict("beta2" => 0.5 * beta2))
+        linear = (A, w) -> im * (0.5 * beta2) * w^2
         exec = default_execution_options(backend_type = VECTOR_BACKEND_CPU, fft_backend = FFT_BACKEND_FFTW)
 
         base_kwargs = (
@@ -148,7 +148,7 @@ function main(argv = ARGS)
         kerr_result = NLOLib.propagate(
             pulse,
             linear,
-            OperatorSpec(expr = "i*gamma*A*I", params = Dict("gamma" => gamma));
+            (A, I) -> im * gamma * A * I;
             base_kwargs...,
             sqlite_path = storage_kerr.sqlite_path,
             run_id = storage_kerr.run_id,
@@ -165,7 +165,7 @@ function main(argv = ARGS)
         raman_result = NLOLib.propagate(
             pulse,
             linear,
-            "none";
+            (A, I) -> 0.0;
             base_kwargs...,
             nonlinear_model = NONLINEAR_MODEL_KERR_RAMAN,
             nonlinear_gamma = gamma,

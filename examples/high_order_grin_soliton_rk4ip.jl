@@ -344,12 +344,9 @@ function main(argv = ARGS)
             delta_y = dy,
             potential_grid = ComplexF64.(potential),
         )
-        linear = OperatorSpec(
-            expr = "i*(beta2*(wt*wt) + beta_t*((kx*kx)+(ky*ky)))",
-            params = Dict("beta2" => 0.5 * beta2, "beta_t" => beta_t),
-        )
-        nonlinear_full = OperatorSpec(expr = "i*A*(gamma*I + V)", params = Dict("gamma" => gamma_nonlinear))
-        nonlinear_linear = OperatorSpec(expr = "i*A*(gamma*I + V)", params = Dict("gamma" => 0.0))
+        linear = (A, wt, kx, ky) -> im * ((0.5 * beta2) * wt^2 + beta_t * (kx^2 + ky^2))
+        nonlinear_full = (A, I, V) -> im * A * (gamma_nonlinear * I + V)
+        nonlinear_linear = (A, I, V) -> im * A * V
         exec = default_execution_options(backend_type = VECTOR_BACKEND_AUTO, fft_backend = FFT_BACKEND_AUTO)
         storage_nonlinear = storage_kwargs(db; example_name = example_name, run_group = run_group, case_key = nonlinear_case_key, chunk_records = 4)
         storage_linear = storage_kwargs(db; example_name = example_name, run_group = run_group, case_key = linear_case_key, chunk_records = 4)

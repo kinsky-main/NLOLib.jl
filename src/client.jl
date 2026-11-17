@@ -196,7 +196,8 @@ function _truncate_to_terminal_event(z_axis::Vector{Float64}, records::Matrix{Co
     return kept_z, kept_records
 end
 
-function propagate(api::NLolib, pulse, linear_operator = "gvd", nonlinear_operator = "kerr"; kwargs...)
+function propagate(api::NLolib, pulse, linear_operator = _default_linear_operator,
+                   nonlinear_operator = _default_nonlinear_operator; kwargs...)
     request = from_pulse(PropagateRequestBuilder(), pulse, linear_operator, nonlinear_operator; kwargs...)
     dense_output = Bool(get(Dict{Symbol, Any}(pairs(kwargs)), :dense_output, false))
     events = get(Dict{Symbol, Any}(pairs(kwargs)), :events, nothing)
@@ -220,5 +221,6 @@ end
 propagate(config::Union{PreparedSimConfig, SimulationConfig}, input_field; kwargs...) =
     propagate(_api(), config, input_field; kwargs...)
 
-propagate(pulse, linear_operator = "gvd", nonlinear_operator = "kerr"; kwargs...) =
+propagate(pulse, linear_operator = _default_linear_operator,
+          nonlinear_operator = _default_nonlinear_operator; kwargs...) =
     propagate(_api(), pulse, linear_operator, nonlinear_operator; kwargs...)

@@ -1,12 +1,7 @@
-const _LINEAR_OPERATOR_PRESETS = Dict(
-    "none" => (expr = "0", params = Dict{String, Float64}()),
-    "gvd" => (expr = "i*beta2*w*w-loss", params = Dict("beta2" => -0.5, "loss" => 0.0)),
-)
-
-const _NONLINEAR_OPERATOR_PRESETS = Dict(
-    "none" => (expr = "0", params = Dict{String, Float64}()),
-    "kerr" => (expr = "i*gamma*A*I", params = Dict("gamma" => 1.0)),
-)
+# Defaults of the high-level `propagate`: anomalous GVD with beta2/2 = -0.5,
+# and a unit-gamma Kerr nonlinearity.
+_default_linear_operator(A, w) = -0.5im * w^2
+_default_nonlinear_operator(A, I) = im * A * I
 
 struct PreparedSimConfig
     simulation_config::SimulationConfig
@@ -131,62 +126,45 @@ function _shift_constant_indices(expression::AbstractString, offset::Integer)
     return replace(String(expression), r"\bc(\d+)\b" => s -> "c$(parse(Int, s.captures[1]) + offset)")
 end
 
-function _parameterize_expression(expression::AbstractString, params, offset::Integer)
-    params === nothing && return (String(expression), Float64[])
-    if params isa AbstractDict
-        rewritten = String(expression)
-        constants = Float64[]
-        for (idx, pair) in enumerate(params)
-            name = String(first(pair))
-            occursin(r"^[A-Za-z_]\w*$", name) || throw(ArgumentError("invalid parameter name '$name'"))
-            rewritten = replace(rewritten, Regex("\\b" * name * "\\b") => "c$(offset + idx - 1)")
-            push!(constants, Float64(last(pair)))
-        end
-        return rewritten, constants
-    end
-    constants = Float64.(collect(params))
-    return _shift_constant_indices(expression, offset), constants
-end
-
-function _coerce_operator_spec(operator)
-    operator isa OperatorSpec && return operator
-    operator isa AbstractString && return OperatorSpec(expr = String(operator))
-    if operator isa NamedTuple || operator isa AbstractDict
-        getvalue(name, default=nothing) = operator isa NamedTuple ? get(operator, name, default) : get(operator, String(name), get(operator, name, default))
-        return OperatorSpec(
-            expr = isnothing(getvalue(:expr, nothing)) ? nothing : String(getvalue(:expr)),
-            fn = getvalue(:fn, nothing),
-            params = getvalue(:params, nothing),
-        )
-    end
-    throw(ArgumentError("operator must be a preset string, OperatorSpec, NamedTuple, or AbstractDict"))
-end
-
-function _unsupported_callable_operator(context::AbstractString)
-    throw(ArgumentError(
-        "$(context) callable operators are not implemented in the Julia high-level API; use expression strings or built-in presets instead"
+function _coerce_operator_spec(context::AbstractString, operator)
+    operator isa AbstractString && throw(ArgumentError(
+        "$(context) operator must be a function, such as (A, w) -> im * w^2; " *
+        "expression strings and named presets such as \"$(operator)\" are not accepted"
     ))
+    spec = if operator isa OperatorSpec
+        operator
+    elseif operator isa Function
+        OperatorSpec(fn = operator)
+    elseif operator isa NamedTuple || operator isa AbstractDict
+        getvalue(name) = operator isa NamedTuple ? get(operator, name, nothing) : get(operator, String(name), get(operator, name, nothing))
+        OperatorSpec(fn = getvalue(:fn), params = getvalue(:params))
+    else
+        throw(ArgumentError("$(context) operator must be a function, OperatorSpec, NamedTuple, or AbstractDict"))
+    end
+    spec.fn isa Function || throw(ArgumentError("$(context) operator must define fn as a function"))
+    spec.params === nothing || spec.params isa AbstractDict ||
+        throw(ArgumentError("$(context) operator params must be a name => value mapping"))
+    return spec
 end
 
-function _resolve_operator_spec(context::AbstractString, operator, offset::Integer)
-    presets = context == "linear" ? _LINEAR_OPERATOR_PRESETS : _NONLINEAR_OPERATOR_PRESETS
-    spec = _coerce_operator_spec(operator)
-    spec.expr !== nothing && spec.fn !== nothing &&
-        throw(ArgumentError("$context operator cannot define both expr and fn"))
-    expr = spec.expr
-    params = spec.params
-    if spec.fn !== nothing
-        _unsupported_callable_operator(context)
-    end
-    if expr === nothing
-        throw(ArgumentError("$context operator must define expr/fn or a known preset"))
-    end
-    if haskey(presets, expr)
-        preset = presets[expr]
-        expr = preset.expr
-        params = preset.params
-    end
-    return _parameterize_expression(expr, params, offset)
+"""
+    _lower_operator!(constants, fn, context, bindings)
+
+Trace `fn` in `context` into the expression text the C API compiles, appending
+any bound constants to `constants` and shifting the text's `cN` indices past the
+ones already there. Returns `nothing` when `fn` is `nothing`.
+"""
+function _lower_operator!(constants::Vector{Float64}, fn, context::AbstractString, bindings)
+    fn === nothing && return nothing
+    fn isa AbstractString && throw(ArgumentError(
+        "$(context) operator must be a function of its symbols ($(join(runtime_context_symbols(context), ", "))); " *
+        "expression strings are not accepted"
+    ))
+    fn isa Function || throw(ArgumentError("$(context) operator must be a function"))
+    traced, traced_constants = translate_callable(fn, context; constant_bindings = bindings)
+    expr = _shift_constant_indices(traced, length(constants))
+    append!(constants, traced_constants)
+    return expr
 end
 
 function _storage_result_to_meta(storage_result::StorageResult)
@@ -376,19 +354,24 @@ function prepare_sim_config(num_time_samples::Integer;
 
     physics = PhysicsConfig()
     if runtime !== nothing
-        runtime.linear_factor_expr !== nothing && runtime.dispersion_factor_expr !== nothing &&
-            throw(ArgumentError("linear_factor_expr and dispersion_factor_expr are aliases; provide only one"))
-        runtime.linear_expr !== nothing && runtime.dispersion_expr !== nothing &&
-            throw(ArgumentError("linear_expr and dispersion_expr are aliases; provide only one"))
-        any(op !== nothing for op in (runtime.linear_factor_fn, runtime.linear_fn, runtime.potential_fn,
-                                      runtime.dispersion_factor_fn, runtime.dispersion_fn, runtime.nonlinear_fn)) &&
-            _unsupported_callable_operator("runtime")
+        runtime.linear_factor_fn !== nothing && runtime.dispersion_factor_fn !== nothing &&
+            throw(ArgumentError("linear_factor_fn and dispersion_factor_fn are aliases; provide only one"))
+        runtime.linear_fn !== nothing && runtime.dispersion_fn !== nothing &&
+            throw(ArgumentError("linear_fn and dispersion_fn are aliases; provide only one"))
 
-        linear_factor_expr = isnothing(runtime.linear_factor_expr) ? runtime.dispersion_factor_expr : runtime.linear_factor_expr
-        linear_expr = isnothing(runtime.linear_expr) ? runtime.dispersion_expr : runtime.linear_expr
-        potential_expr = runtime.potential_expr
-        nonlinear_expr = runtime.nonlinear_expr
-        constants = Float64.(runtime.constants)
+        # Each function is traced once, here at setup, into the expression text
+        # the C API compiles. Shifting each translation's cN indices past the
+        # constants already collected keeps slots unique across operators.
+        constants = Float64[]
+        lower(fn, context) = _lower_operator!(constants, fn, context, runtime.constant_bindings)
+        linear_factor_expr = runtime.linear_factor_fn !== nothing ?
+            lower(runtime.linear_factor_fn, RUNTIME_CONTEXT_LINEAR_FACTOR) :
+            lower(runtime.dispersion_factor_fn, RUNTIME_CONTEXT_DISPERSION_FACTOR)
+        linear_expr = runtime.linear_fn !== nothing ?
+            lower(runtime.linear_fn, RUNTIME_CONTEXT_LINEAR) :
+            lower(runtime.dispersion_fn, RUNTIME_CONTEXT_DISPERSION)
+        potential_expr = lower(runtime.potential_fn, RUNTIME_CONTEXT_POTENTIAL)
+        nonlinear_expr = lower(runtime.nonlinear_fn, RUNTIME_CONTEXT_NONLINEAR)
         length(constants) <= RUNTIME_OPERATOR_CONSTANTS_MAX ||
             throw(ArgumentError("runtime.constants exceeds RUNTIME_OPERATOR_CONSTANTS_MAX"))
 
@@ -398,12 +381,12 @@ function prepare_sim_config(num_time_samples::Integer;
         end
 
         for value in (linear_factor_expr, linear_expr, potential_expr, nonlinear_expr)
-            value === nothing || push!(keepalive, String(value))
+            value === nothing || push!(keepalive, value)
         end
-        linear_factor_str = linear_factor_expr === nothing ? nothing : String(linear_factor_expr)
-        linear_str = linear_expr === nothing ? nothing : String(linear_expr)
-        potential_str = potential_expr === nothing ? nothing : String(potential_expr)
-        nonlinear_str = nonlinear_expr === nothing ? nothing : String(nonlinear_expr)
+        linear_factor_str = linear_factor_expr
+        linear_str = linear_expr
+        potential_str = potential_expr
+        nonlinear_str = nonlinear_expr
 
         physics = PhysicsConfig(
             _cfg_string_ptr(linear_factor_str),

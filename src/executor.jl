@@ -59,7 +59,9 @@ function _build_low_level_result(request::NormalizedPropagateRequest,
         meta["step_history"] = step_history
     end
     merge!(meta, request.meta_overrides)
-    final = written > 0 ? view(records, :, written) : view(records, :, 1:0)
+    # With return_records = false there are no columns to take the final record
+    # from; the field is a vector, so the empty case is an empty vector.
+    final = size(records, 2) > 0 ? view(records, :, size(records, 2)) : ComplexF64[]
     return PropagationResult(records, z_axis, final, meta)
 end
 

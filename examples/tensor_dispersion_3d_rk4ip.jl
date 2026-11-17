@@ -144,16 +144,13 @@ function main(argv = ARGS)
             delta_x = dx,
             delta_y = dy,
         )
-        linear = OperatorSpec(
-            expr = "i*(beta2*wt*wt + beta_t*((kx*kx)+(ky*ky)))",
-            params = Dict("beta2" => 0.5 * beta2, "beta_t" => beta_t),
-        )
+        linear = (A, wt, kx, ky) -> im * ((0.5 * beta2) * wt^2 + beta_t * (kx^2 + ky^2))
         exec = default_execution_options(backend_type = VECTOR_BACKEND_CPU, fft_backend = FFT_BACKEND_FFTW)
         storage = storage_kwargs(db; example_name = example_name, run_group = run_group, case_key = case_key, chunk_records = 2)
         result = NLOLib.propagate(
             pulse,
             linear,
-            "none";
+            (A, I) -> 0.0;
             t_span = (0.0, z_final),
             t_eval = collect(range(0.0, z_final, length = num_records)),
             first_step = 0.02,
