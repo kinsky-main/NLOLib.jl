@@ -18,6 +18,8 @@ function runtime_functions_case()
 
     limits = query_runtime_limits()
     @test limits isa RuntimeLimits
+    @test limits.storage_available isa Bool
+    @test limits.storage_available == storage_is_available()
     @test limits.max_num_time_samples_runtime > 0
     pulse_limits = query_runtime_limits(pulse = gaussian_pulse(), exec_options = CPU)
     @test pulse_limits.max_num_recorded_samples_in_memory > 0
@@ -67,7 +69,7 @@ function records_case()
     @test final_only.meta["status"] == "ok"
     @test final_only.meta["backend_requested"] == "cpu"
     @test final_only.meta["preset"] == "balanced"
-    @test final_only.meta["coupled"] == false
+    @test final_only.meta["coupled"] === false
 
     # Otherwise num_records records evenly spaced from 0.
     dense = propagate(pulse, zero_linear, zero_nonlinear;
@@ -82,9 +84,15 @@ function records_case()
         propagation_distance = 0.1, record_z = [0.0, 0.025, 0.1], exec_options = CPU)
     @test explicit.z_axis == [0.0, 0.025, 0.1]
     @test size(explicit.records, 2) == 3
-    single = propagate(pulse, zero_linear, zero_nonlinear;
+    # Core 9417e92 returns the final field when one record is requested, even at
+    # an explicit position, and z_axis reports where that field is.
+    drift = (A, w) -> im * 0.2 * w
+    single = propagate(pulse, drift, zero_nonlinear;
         propagation_distance = 0.1, record_z = [0.05], num_records = 1, exec_options = CPU)
-    @test single.z_axis == [0.05]
+    final_drift = propagate(pulse, drift, zero_nonlinear;
+        propagation_distance = 0.1, num_records = 1, exec_options = CPU)
+    @test single.z_axis == [0.1]
+    @test single.final ≈ final_drift.final rtol = 1e-12
     @test_throws ArgumentError propagate(pulse, zero_linear, zero_nonlinear;
         propagation_distance = 0.1, record_z = [0.0, 0.1], num_records = 3)
 
@@ -195,6 +203,7 @@ function storage_case()
         @test isempty(result.final)
         @test result.storage_result isa StorageResult
         @test result.storage_result.run_id == "julia-test"
+        @test result.storage_result.truncated isa Bool
         @test result.storage_result.records_captured > 0
     end
     @test_throws ArgumentError propagate(pulse, zero_linear, zero_nonlinear;
@@ -225,6 +234,9 @@ function errors_case()
     @test_throws ArgumentError run(exec_options = ExecutionOptions(backend_type = "gpu"))
     @test_throws ArgumentError run(exec_options = ExecutionOptions(fft_backend = "FFTW"))
     @test_throws ArgumentError run(exec_options = (backend_type = "cpu",))
+    @test_throws ArgumentError run(exec_options = Dict("backend_type" => "cpu"))
+    @test_throws ArgumentError run(storage = (sqlite_path = "run.sqlite",))
+    @test_throws ArgumentError run(storage = Dict("sqlite_path" => "run.sqlite"))
     @test_throws ArgumentError run(constant_bindings = Dict("beta2" => Inf))
     @test_throws ArgumentError run(propagation_distance = -1.0)
     @test_throws ArgumentError run(potential_operator = (x, y) -> 0.0)

@@ -134,13 +134,7 @@ struct CExecutionOptions
     vulkan::VulkanBackendConfig
 end
 
-"""
-    RuntimeLimits
-
-What `query_runtime_limits` returns: the fields of the C `runtime_limits`, in
-its order. `storage_available` is nonzero when the build can write SQLite.
-"""
-struct RuntimeLimits
+struct CRuntimeLimits
     max_num_time_samples_runtime::Csize_t
     max_num_recorded_samples_in_memory::Csize_t
     max_num_recorded_samples_with_storage::Csize_t
@@ -321,6 +315,6 @@ RuntimeOperatorParams() = RuntimeOperatorParams(
 )
 SimulationConfig() = SimulationConfig(PropagationParams(), Tensor3DDesc(), TimeGrid(), FrequencyGrid(), SpatialGrid())
 VulkanBackendConfig() = VulkanBackendConfig(C_NULL, C_NULL, C_NULL, 0, C_NULL, 0, 0)
-RuntimeLimits() = RuntimeLimits(0, 0, 0, 0, 0, 0)
+CRuntimeLimits() = CRuntimeLimits(0, 0, 0, 0, 0, 0)
 CStorageResult() = CStorageResult(_zero_chars(Val(STORAGE_RUN_ID_MAX)), 0, 0, 0, 0, 0)
 PerfProfileSnapshot() = PerfProfileSnapshot(0.0, 0.0, ntuple(_ -> UInt64(0), 16)...)

@@ -60,13 +60,35 @@ end
     @test isempty(constants)
 end
 
-@testset "binds by name then position" begin
-    # A parameter whose name is one of the context's symbols binds to that
-    # symbol wherever it sits, rather than binding backwards.
+@testset "parameter binding rule" begin
+    # operator_lowering.parameter_binding in the core's tests/api_surface.json.
+    # (a) A parameter named after a context symbol binds to it wherever it is.
     @test translate_callable((w, A) -> 0.5 * w, "dispersion_factor")[1] == "0.5*w"
     @test translate_callable((A, V, I) -> A * (I + V), "nonlinear")[1] == "A*(I+V)"
-    # An unrecognised name takes the next unused symbol in the context's order.
+    # (a) before (b): named parameters bind first, so (B, A) binds A to A and
+    # B to the next unused symbol, w.
+    @test translate_callable((B, A) -> B * A, "dispersion_factor")[1] == "w*A"
+    @test translate_callable((B, I) -> B * I, "nonlinear")[1] == "A*I"
+    @test translate_callable((field, D, step) -> field * step * D, "dispersion")[1] == "A*h*D"
+    # (b) An unrecognised name takes the next unused symbol in the context's order.
     @test translate_callable((foo, bar) -> 0.5 * bar, "dispersion_factor")[1] == "0.5*w"
+    @test translate_callable((A, omega) -> omega, "dispersion_factor")[1] == "w"
+    @test translate_callable((A, omega) -> omega, "linear_factor")[1] == "wt"
+    # (b) More parameters than symbols is the error.
+    @test_throws ArgumentError translate_callable((a, b, c) -> a, "dispersion_factor")
+    # (c) A runtime symbol the context does not provide is never rebound.
+    @test_throws ArgumentError translate_callable((A, kx) -> kx, "dispersion_factor")
+    @test_throws ArgumentError translate_callable((A, I) -> I, "linear_factor")
+    # (d) Two parameters resolving to one symbol are the error. Julia rejects a
+    # repeated parameter name itself, so only an alias pair can reach the rule.
+    @test_throws ArgumentError translate_callable((A, w, wt, kx, ky) -> w, "linear_factor")
+    @test_throws ArgumentError translate_callable((A, wt, w) -> w, "dispersion_factor")
+    # (e) w and wt are one symbol, emitted in the context's own spelling.
+    @test translate_callable((A, w, kx, ky) -> w * kx * ky, "linear_factor")[1] == "wt*kx*ky"
+    @test translate_callable((A, wt) -> wt, "dispersion_factor")[1] == "w"
+    # (f) A free name in the body is a captured constant, whatever it is called.
+    kx = 0.25
+    @test translate_callable((A, w) -> kx * w, "dispersion_factor")[1] == "0.25*w"
 end
 
 @testset "scalar result" begin

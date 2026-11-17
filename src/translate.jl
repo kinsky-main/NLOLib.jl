@@ -324,45 +324,58 @@ end
 """
     _bind_symbols(names, arity, context, symbols)
 
-Map each parameter to the runtime symbol it stands for.
+Map each parameter to the runtime symbol it stands for, by the rule in
+`operator_lowering.parameter_binding` of the core's `tests/api_surface.json`:
 
-A parameter named after a symbol of the context, or an alias of one, binds to
-that symbol wherever it sits; `(w, A) -> ...` binds `w` to `w` and `A` to `A`.
-A parameter named after a runtime symbol the context does not provide, such as
-`kx` in `dispersion_factor`, is an error. Any other parameter takes the next
-unused symbol in the context's order.
+(a) a parameter named after one of the context's symbols, or an alias of one,
+    binds to that symbol wherever it stands;
+(b) the remaining parameters bind, left to right, to the next symbol of the
+    context's order that is not bound yet;
+(c) a parameter named after a runtime symbol the context does not provide,
+    such as `kx` in `dispersion_factor`, is an error, never rebound;
+(d) two parameters resolving to the same symbol are an error;
+(e) `w` and `wt` are one symbol in the linear contexts, emitted in the
+    context's own spelling.
+
+So `(B, A) -> ...` binds `A` to `A` and `B` to the context's next symbol.
+Without readable names every parameter binds by position.
 """
 function _bind_symbols(names, arity::Integer, context::AbstractString, symbols::Vector{String})
     aliases = _CONTEXT_ALIASES[String(context)]
-    bound = Vector{String}(undef, arity)
-    used = Set{String}()
-    default_idx = 1
-    for idx in 1:arity
-        name = names === nothing ? nothing : names[idx]
-        name = name === nothing ? nothing : get(aliases, name, name)
-        if name !== nothing && name in symbols && !(name in used)
-            symbol = name
-        elseif name !== nothing && name in _RUNTIME_SYMBOLS
-            throw(ArgumentError(
-                "the $(context) context does not provide '$(names[idx])'; it " *
-                "provides $(join(symbols, ", "))" *
-                (isempty(aliases) ? "" : " (and " * join(["$(k) for $(v)" for (k, v) in sort(collect(aliases))], ", ") * ")")
-            ))
-        else
-            while default_idx <= length(symbols) && symbols[default_idx] in used
-                default_idx += 1
+    provided() = join(symbols, ", ") *
+        (isempty(aliases) ? "" : " (and " * join(["$(k) for $(v)" for (k, v) in sort(collect(aliases))], ", ") * ")")
+    bound = Vector{Union{Nothing, String}}(nothing, arity)
+    owner = Dict{String, Int}()
+    if names !== nothing
+        for idx in 1:arity
+            name = names[idx]
+            symbol = get(aliases, name, name)
+            if symbol in symbols
+                haskey(owner, symbol) && throw(ArgumentError(
+                    "parameters '$(names[owner[symbol]])' and '$(name)' of this $(context) " *
+                    "function both name the symbol '$(symbol)'"
+                ))
+                bound[idx] = symbol
+                owner[symbol] = idx
+            elseif name in _RUNTIME_SYMBOLS
+                throw(ArgumentError(
+                    "the $(context) context does not provide '$(name)'; it provides $(provided())"
+                ))
             end
-            default_idx > length(symbols) && throw(ArgumentError(
-                "argument $(idx) of this $(context) function has no symbol left " *
-                "to bind; the context provides $(join(symbols, ", "))"
-            ))
-            symbol = symbols[default_idx]
-            default_idx += 1
         end
-        bound[idx] = symbol
-        push!(used, symbol)
     end
-    return bound
+    free = [symbol for symbol in symbols if !haskey(owner, symbol)]
+    next = 1
+    for idx in 1:arity
+        bound[idx] === nothing || continue
+        next > length(free) && throw(ArgumentError(
+            "argument $(idx) of this $(context) function has no symbol left " *
+            "to bind; the context provides $(provided())"
+        ))
+        bound[idx] = free[next]
+        next += 1
+    end
+    return String[symbol for symbol in bound]
 end
 
 """

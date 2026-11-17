@@ -108,6 +108,21 @@ struct ProgressInfo
 end
 
 """
+    RuntimeLimits
+
+What `query_runtime_limits` returns: the fields of the C `runtime_limits`, in
+its order. `storage_available` says whether the build can write SQLite.
+"""
+struct RuntimeLimits
+    max_num_time_samples_runtime::Int
+    max_num_recorded_samples_in_memory::Int
+    max_num_recorded_samples_with_storage::Int
+    estimated_required_working_set_bytes::Int
+    estimated_device_budget_bytes::Int
+    storage_available::Bool
+end
+
+"""
     PropagationResult
 
 The result of `propagate`. `records` is samples x records, `z_axis` the

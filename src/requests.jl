@@ -103,7 +103,9 @@ function propagate(pulse, linear_operator, nonlinear_operator;
             throw(ArgumentError("num_records ($(num_records)) must be unset or equal length(record_z) ($(length(explicit_z)))"))
         count = length(explicit_z)
         mode = PROPAGATE_OUTPUT_DENSE
-        z_axis = explicit_z
+        # Core 9417e92 returns the field at propagation_distance whenever one
+        # record is requested, so a single position reports where that field is.
+        z_axis = count == 1 ? [distance] : explicit_z
     else
         count = num_records === nothing ? profile.num_records : Int(num_records)
         mode = count == 1 ? PROPAGATE_OUTPUT_FINAL_ONLY : PROPAGATE_OUTPUT_DENSE

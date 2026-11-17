@@ -68,9 +68,12 @@ The symbols each operator may take:
 | `potential_operator` | not allowed | `x, y, t` |
 | `nonlinear_operator` | `A, I, V` | `A, I, V` |
 
-`w` and `wt` are interchangeable in the linear operators. Any other parameter
-name binds to the next unused symbol in that order, and a symbol from the wrong
-column is an `ArgumentError`.
+Parameters named after one of these symbols bind to it first, wherever they
+stand; the rest then take the unused symbols in the order shown, so
+`(B, A) -> ...` binds `A` to `A` and `B` to `w`. `w` and `wt` are one symbol in
+the linear operators. A symbol from the wrong column, two parameters naming
+the same symbol (such as `w` and `wt`), or more parameters than symbols is an
+`ArgumentError`. A free name in the body is always a captured constant.
 
 ## Results and errors
 

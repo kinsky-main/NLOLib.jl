@@ -34,7 +34,7 @@ them. With `pulse`, the estimate is for that pulse's grid; `exec_options` is an
 function query_runtime_limits(; pulse = nothing, exec_options = nothing)
     exec_raw = _c_execution_options(exec_options)
     prepared = pulse === nothing ? nothing : _prepare_sim_config(_normalize_pulse_spec(pulse), _QUERY_PROPAGATION)
-    limits_ref = Ref(RuntimeLimits())
+    limits_ref = Ref(CRuntimeLimits())
     sim_ref = prepared === nothing ? nothing : Ref(prepared[1])
     exec_ref = exec_raw === nothing ? nothing : Ref(exec_raw)
     sim_ptr = sim_ref === nothing ? Ptr{SimulationConfig}(C_NULL) : Base.unsafe_convert(Ptr{SimulationConfig}, sim_ref)
@@ -44,7 +44,7 @@ function query_runtime_limits(; pulse = nothing, exec_options = nothing)
         ccall(
             _sym(:nlolib_query_runtime_limits),
             Cint,
-            (Ptr{SimulationConfig}, Ptr{PhysicsConfig}, Ptr{CExecutionOptions}, Ref{RuntimeLimits}),
+            (Ptr{SimulationConfig}, Ptr{PhysicsConfig}, Ptr{CExecutionOptions}, Ref{CRuntimeLimits}),
             sim_ptr,
             Ptr{PhysicsConfig}(C_NULL),
             exec_ptr,
@@ -52,7 +52,15 @@ function query_runtime_limits(; pulse = nothing, exec_options = nothing)
         )
     end
     _check_status(status, "nlolib_query_runtime_limits")
-    return limits_ref[]
+    raw = limits_ref[]
+    return RuntimeLimits(
+        Int(raw.max_num_time_samples_runtime),
+        Int(raw.max_num_recorded_samples_in_memory),
+        Int(raw.max_num_recorded_samples_with_storage),
+        Int(raw.estimated_required_working_set_bytes),
+        Int(raw.estimated_device_budget_bytes),
+        raw.storage_available != 0,
+    )
 end
 
 """
