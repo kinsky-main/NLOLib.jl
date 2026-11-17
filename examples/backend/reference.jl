@@ -1,5 +1,22 @@
 using FFTW
 
+"""
+    exact_linear_temporal_records(field0, z_records, omega, c0, c1 = 0.0)
+
+Exact records (one row per z) for `D(w) = i c0 w^2 - c1`: forward FFT, multiply
+by `exp(D z)`, inverse FFT, as the solver does.
+"""
+function exact_linear_temporal_records(field0, z_records, omega, c0::Real, c1::Real = 0.0)
+    spectrum0 = fft(ComplexF64.(collect(field0)))
+    dispersion = (1im * Float64(c0)) .* (Float64.(collect(omega)) .^ 2) .- Float64(c1)
+    z_axis = Float64.(collect(z_records))
+    out = Matrix{ComplexF64}(undef, length(z_axis), length(spectrum0))
+    for (idx, z) in pairs(z_axis)
+        out[idx, :] = ifft(spectrum0 .* exp.(dispersion .* z))
+    end
+    return out
+end
+
 function exact_linear_tensor3d_records(field0_tyx,
                                        z_records,
                                        omega,

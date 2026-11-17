@@ -6,84 +6,19 @@ using Printf
 
 include("types.jl")
 include("lib.jl")
-include("api.jl")
 include("models.jl")
 include("translate.jl")
+include("api.jl")
 include("config.jl")
 include("requests.jl")
 include("executor.jl")
-include("client.jl")
 
-export NLOComplex
-export PropagationParams
-export TimeGrid
-export FrequencyGrid
-export SpatialGrid
-export Tensor3DDesc
-export RuntimeOperatorParams
-export SimulationConfig
-export PhysicsConfig
-export VulkanBackendConfig
-export ExecutionOptions
-export RuntimeLimits
-export StorageOptions
-export StorageResult
-export StepEvent
-export CProgressInfo
-export PreparedValue
-export PreparedSimConfig
-export PulseSpec
-export OperatorSpec
-export RuntimeOperators
-export ProgressInfo
-export PropagationResult
-export PropagateResult
-export PropagationAbortedError
-export NLolib
-export physics_config
-export storage_options
-export default_execution_options
-export default_storage_options
 export load
 export loaded_library_path
-export storage_is_available
-export query_runtime_limits
-export propagate!
 export propagate
-export wrap_records
-export final_record
+export query_runtime_limits
+export storage_is_available
 export tensor_record_view
-export NT_MAX
-export STORAGE_RUN_ID_MAX
-export TENSOR_LAYOUT_XYT_T_FAST
-export NONLINEAR_MODEL_EXPR
-export NONLINEAR_MODEL_KERR_RAMAN
-export VECTOR_BACKEND_CPU
-export VECTOR_BACKEND_VULKAN
-export VECTOR_BACKEND_AUTO
-export FFT_BACKEND_AUTO
-export FFT_BACKEND_FFTW
-export FFT_BACKEND_VKFFT
-export STORAGE_DB_CAP_POLICY_STOP_WRITES
-export STORAGE_DB_CAP_POLICY_FAIL
-export PROPAGATE_OUTPUT_DENSE
-export PROPAGATE_OUTPUT_FINAL_ONLY
-export NLOLIB_STATUS_OK
-export NLOLIB_STATUS_INVALID_ARGUMENT
-export NLOLIB_STATUS_ALLOCATION_FAILED
-export NLOLIB_STATUS_NOT_IMPLEMENTED
-export NLOLIB_STATUS_ABORTED
-export NLOLIB_LOG_LEVEL_ERROR
-export NLOLIB_LOG_LEVEL_WARN
-export NLOLIB_LOG_LEVEL_INFO
-export NLOLIB_LOG_LEVEL_DEBUG
-export NLOLIB_PROGRESS_STREAM_STDERR
-export NLOLIB_PROGRESS_STREAM_STDOUT
-export NLOLIB_PROGRESS_STREAM_BOTH
-export PROGRESS_EVENT_ACCEPTED
-export PROGRESS_EVENT_REJECTED
-export PROGRESS_EVENT_FINISH
-export prepare_sim_config
 export set_log_file
 export set_log_buffer
 export clear_log_buffer
@@ -91,5 +26,20 @@ export read_log_buffer
 export set_log_level
 export set_progress_options
 export set_progress_stream
+export perf_profile_set_enabled
+export perf_profile_is_enabled
+export perf_profile_reset
+export perf_profile_read
+export PulseSpec
+export ExecutionOptions
+export StorageOptions
+export PropagationResult
+export StepHistory
+export StorageResult
+export ProgressInfo
+export RuntimeLimits
+export PerfProfileSnapshot
+export NLOLibError
+export PropagationAbortedError
 
 end

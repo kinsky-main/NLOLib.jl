@@ -250,24 +250,32 @@ const RUNTIME_CONTEXT_DISPERSION_FACTOR = "dispersion_factor"
 const RUNTIME_CONTEXT_DISPERSION = "dispersion"
 const RUNTIME_CONTEXT_NONLINEAR = "nonlinear"
 
-# Positional default order per context, which is also the allow-list. Mirrors
-# _CONTEXT_ALLOWED_SYMBOLS and _CONTEXT_DEFAULT_PARAM_SYMBOLS in
-# python/nlolib/translate/runtime_expr.py and the context_allows_symbol_*
-# checks in src/physics/operator_program_compile.c.
+# Parameter order per context, which is also the allow-list, and the aliases
+# each context accepts. These follow operator_lowering.contexts in the core's
+# tests/api_surface.json, which is taken from the context_allows_symbol_*
+# checks in src/physics/operator_program_compile.c. `w` and `wt` name the same
+# axis in every linear context.
 const _CONTEXT_SYMBOLS = Dict{String, Vector{String}}(
-    RUNTIME_CONTEXT_LINEAR_FACTOR =>
-        ["A", "wt", "kx", "ky", "x", "y", "t"],
-    RUNTIME_CONTEXT_DISPERSION_FACTOR =>
-        ["A", "w", "wt", "kx", "ky", "x", "y", "t"],
-    RUNTIME_CONTEXT_LINEAR =>
-        ["A", "D", "h", "wt", "kx", "ky", "x", "y", "t", "V"],
-    RUNTIME_CONTEXT_DISPERSION =>
-        ["A", "D", "h", "w", "wt", "kx", "ky", "x", "y", "t", "V"],
-    RUNTIME_CONTEXT_POTENTIAL =>
-        ["x", "y", "t", "wt", "kx", "ky"],
-    RUNTIME_CONTEXT_NONLINEAR =>
-        ["A", "I", "V"],
+    RUNTIME_CONTEXT_DISPERSION_FACTOR => ["A", "w"],
+    RUNTIME_CONTEXT_DISPERSION => ["A", "D", "h", "w", "V"],
+    RUNTIME_CONTEXT_LINEAR_FACTOR => ["A", "wt", "kx", "ky", "x", "y", "t"],
+    RUNTIME_CONTEXT_LINEAR => ["A", "D", "h", "wt", "kx", "ky", "x", "y", "t", "V"],
+    RUNTIME_CONTEXT_POTENTIAL => ["x", "y", "t"],
+    RUNTIME_CONTEXT_NONLINEAR => ["A", "I", "V"],
 )
+
+const _CONTEXT_ALIASES = Dict{String, Dict{String, String}}(
+    RUNTIME_CONTEXT_DISPERSION_FACTOR => Dict("wt" => "w"),
+    RUNTIME_CONTEXT_DISPERSION => Dict("wt" => "w"),
+    RUNTIME_CONTEXT_LINEAR_FACTOR => Dict("w" => "wt"),
+    RUNTIME_CONTEXT_LINEAR => Dict("w" => "wt"),
+    RUNTIME_CONTEXT_POTENTIAL => Dict{String, String}(),
+    RUNTIME_CONTEXT_NONLINEAR => Dict{String, String}(),
+)
+
+# Every symbol some context knows. A parameter named after one of these that
+# its own context does not list is an error rather than a positional binding.
+const _RUNTIME_SYMBOLS = Set(["A", "w", "wt", "D", "h", "V", "kx", "ky", "x", "y", "t", "I"])
 
 """
     runtime_context_symbols(context)
@@ -316,35 +324,58 @@ end
 """
     _bind_symbols(names, arity, context, symbols)
 
-Map each parameter to the runtime symbol it stands for.
+Map each parameter to the runtime symbol it stands for, by the rule in
+`operator_lowering.parameter_binding` of the core's `tests/api_surface.json`:
 
-Name first, then position, so `(w, A) -> ...` binds `w` to `w` and `A` to `A`
-rather than binding backwards the way a purely positional rule would. This is
-the rule `translate_callable` in python/nlolib/translate/runtime_expr.py uses.
+(a) a parameter named after one of the context's symbols, or an alias of one,
+    binds to that symbol wherever it stands;
+(b) the remaining parameters bind, left to right, to the next symbol of the
+    context's order that is not bound yet;
+(c) a parameter named after a runtime symbol the context does not provide,
+    such as `kx` in `dispersion_factor`, is an error, never rebound;
+(d) two parameters resolving to the same symbol are an error;
+(e) `w` and `wt` are one symbol in the linear contexts, emitted in the
+    context's own spelling.
+
+So `(B, A) -> ...` binds `A` to `A` and `B` to the context's next symbol.
+Without readable names every parameter binds by position.
 """
 function _bind_symbols(names, arity::Integer, context::AbstractString, symbols::Vector{String})
-    bound = Vector{String}(undef, arity)
-    used = Set{String}()
-    default_idx = 1
-    for idx in 1:arity
-        name = names === nothing ? nothing : names[idx]
-        if name !== nothing && name in symbols && !(name in used)
-            symbol = name
-        else
-            while default_idx <= length(symbols) && symbols[default_idx] in used
-                default_idx += 1
+    aliases = _CONTEXT_ALIASES[String(context)]
+    provided() = join(symbols, ", ") *
+        (isempty(aliases) ? "" : " (and " * join(["$(k) for $(v)" for (k, v) in sort(collect(aliases))], ", ") * ")")
+    bound = Vector{Union{Nothing, String}}(nothing, arity)
+    owner = Dict{String, Int}()
+    if names !== nothing
+        for idx in 1:arity
+            name = names[idx]
+            symbol = get(aliases, name, name)
+            if symbol in symbols
+                haskey(owner, symbol) && throw(ArgumentError(
+                    "parameters '$(names[owner[symbol]])' and '$(name)' of this $(context) " *
+                    "function both name the symbol '$(symbol)'"
+                ))
+                bound[idx] = symbol
+                owner[symbol] = idx
+            elseif name in _RUNTIME_SYMBOLS
+                throw(ArgumentError(
+                    "the $(context) context does not provide '$(name)'; it provides $(provided())"
+                ))
             end
-            default_idx > length(symbols) && throw(ArgumentError(
-                "argument $(idx) of this $(context) function has no symbol left " *
-                "to bind; the context provides $(join(symbols, ", "))"
-            ))
-            symbol = symbols[default_idx]
-            default_idx += 1
         end
-        bound[idx] = symbol
-        push!(used, symbol)
     end
-    return bound
+    free = [symbol for symbol in symbols if !haskey(owner, symbol)]
+    next = 1
+    for idx in 1:arity
+        bound[idx] === nothing || continue
+        next > length(free) && throw(ArgumentError(
+            "argument $(idx) of this $(context) function has no symbol left " *
+            "to bind; the context provides $(provided())"
+        ))
+        bound[idx] = free[next]
+        next += 1
+    end
+    return String[symbol for symbol in bound]
 end
 
 """
@@ -382,11 +413,11 @@ Compile `fn` into runtime operator expression text, returning
 symbols, so ordinary Julia in the body -- `pi`, `p.beta2`, `beta[3]`,
 `2pi/lambda` -- works. The contexts and their symbols are
 
-    "linear_factor"      A, wt, kx, ky, x, y, t
-    "dispersion_factor"  A, w, wt, kx, ky, x, y, t            (alias, adds w)
-    "linear"             A, D, h, wt, kx, ky, x, y, t, V
-    "dispersion"         A, D, h, w, wt, kx, ky, x, y, t, V    (alias, adds w)
-    "potential"          x, y, t, wt, kx, ky
+    "dispersion_factor"  A, w                                  (wt means w)
+    "dispersion"         A, D, h, w, V                         (wt means w)
+    "linear_factor"      A, wt, kx, ky, x, y, t                (w means wt)
+    "linear"             A, D, h, wt, kx, ky, x, y, t, V       (w means wt)
+    "potential"          x, y, t
     "nonlinear"          A, I, V
 
 `constants` is empty for a traced function: captured numbers are inlined as
@@ -404,9 +435,8 @@ expr, _ = translate_callable((A, w) -> im * (beta2 / 2) * w^2, "dispersion_facto
 # expr == "0.025000000000000001*i*w^2"
 ```
 
-Note that `w` is a symbol only in the `dispersion_factor` and `dispersion`
-contexts; in `linear_factor` a parameter named `w` takes that context's next
-symbol, `wt`.
+A parameter named after a runtime symbol the context does not provide, such
+as `kx` in `dispersion_factor`, throws an `ArgumentError`.
 """
 function translate_callable(fn, context::AbstractString; constant_bindings = nothing)
     symbols = runtime_context_symbols(context)

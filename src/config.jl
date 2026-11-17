@@ -1,20 +1,3 @@
-# Defaults of the high-level `propagate`: anomalous GVD with beta2/2 = -0.5,
-# and a unit-gamma Kerr nonlinearity.
-_default_linear_operator(A, w) = -0.5im * w^2
-_default_nonlinear_operator(A, I) = im * A * I
-
-struct PreparedSimConfig
-    simulation_config::SimulationConfig
-    physics_config::PhysicsConfig
-    keepalive::Vector{Any}
-end
-
-function _complex_vector(values)
-    out = ComplexF64.(collect(values))
-    isempty(out) && error("complex vector inputs must be non-empty")
-    return out
-end
-
 function _complex_vector_or_nothing(values)
     values === nothing && return nothing
     return ComplexF64.(collect(values))
@@ -33,92 +16,119 @@ function _default_frequency_grid(num_time_samples::Integer, delta_time::Real)
     return out
 end
 
-function _coerce_pulse_spec(pulse)
-    pulse isa PulseSpec && return pulse
-    if pulse isa NamedTuple || pulse isa AbstractDict
-        getvalue(name, default=nothing) = pulse isa NamedTuple ? get(pulse, name, default) : get(pulse, String(name), get(pulse, name, default))
-        samples = ComplexF64.(collect(getvalue(:samples, nothing)))
-        delta_time = Float64(getvalue(:delta_time, throw(ArgumentError("pulse must define samples and delta_time"))))
-        return PulseSpec(
-            samples = samples,
-            delta_time = delta_time,
-            pulse_period = isnothing(getvalue(:pulse_period, nothing)) ? nothing : Float64(getvalue(:pulse_period)),
-            frequency_grid = _complex_vector_or_nothing(getvalue(:frequency_grid, nothing)),
-            tensor_nt = isnothing(getvalue(:tensor_nt, nothing)) ? nothing : Int(getvalue(:tensor_nt)),
-            tensor_nx = isnothing(getvalue(:tensor_nx, nothing)) ? nothing : Int(getvalue(:tensor_nx)),
-            tensor_ny = isnothing(getvalue(:tensor_ny, nothing)) ? nothing : Int(getvalue(:tensor_ny)),
-            tensor_layout = Int(getvalue(:tensor_layout, TENSOR_LAYOUT_XYT_T_FAST)),
-            delta_x = Float64(getvalue(:delta_x, 1.0)),
-            delta_y = Float64(getvalue(:delta_y, 1.0)),
-            spatial_frequency_grid = _complex_vector_or_nothing(getvalue(:spatial_frequency_grid, nothing)),
-            potential_grid = _complex_vector_or_nothing(getvalue(:potential_grid, nothing)),
-        )
-    end
-    throw(ArgumentError("pulse must be a PulseSpec, NamedTuple, or AbstractDict"))
-end
+_is_tensor_run(pulse::PulseSpec) = pulse.tensor_nt !== nothing
 
+"""
+    _normalize_pulse_spec(pulse)
+
+Check `pulse` and return it; every inconsistency is an `ArgumentError`.
+"""
 function _normalize_pulse_spec(pulse)
-    spec = _coerce_pulse_spec(pulse)
-    isempty(spec.samples) && throw(ArgumentError("pulse.samples must be non-empty"))
-    spec.delta_time > 0.0 || throw(ArgumentError("pulse.delta_time must be > 0"))
-    if !isnothing(spec.tensor_nt)
-        spec.tensor_nt > 0 || throw(ArgumentError("pulse.tensor_nt must be > 0"))
+    pulse isa PulseSpec || throw(ArgumentError("pulse must be a PulseSpec; got $(typeof(pulse))"))
+    isempty(pulse.samples) && throw(ArgumentError("pulse.samples must be non-empty"))
+    pulse.delta_time > 0.0 || throw(ArgumentError("pulse.delta_time must be > 0"))
+    total = length(pulse.samples)
+    shape = (pulse.tensor_nt, pulse.tensor_nx, pulse.tensor_ny)
+    if any(!isnothing, shape)
+        all(!isnothing, shape) ||
+            throw(ArgumentError("pulse.tensor_nt, tensor_nx and tensor_ny must be set together"))
+        all(>(0), shape) || throw(ArgumentError("pulse.tensor_nt, tensor_nx and tensor_ny must be > 0"))
+        prod(shape) == total ||
+            throw(ArgumentError("length(pulse.samples) must equal tensor_nt*tensor_nx*tensor_ny"))
     end
-    return spec
+    nt, nx, ny = _is_tensor_run(pulse) ? shape : (total, 1, 1)
+    check(name, values, lengths) = values === nothing || length(values) in lengths ||
+        throw(ArgumentError("pulse.$(name) must have length " * join(unique(lengths), " or ") * "; got $(length(values))"))
+    check("frequency_grid", pulse.frequency_grid, (nt, total))
+    check("wt_axis", pulse.wt_axis, (nt,))
+    check("kx_axis", pulse.kx_axis, (nx,))
+    check("ky_axis", pulse.ky_axis, (ny,))
+    check("spatial_frequency_grid", pulse.spatial_frequency_grid, _is_tensor_run(pulse) ? (nx * ny, total) : (total,))
+    check("potential_grid", pulse.potential_grid, _is_tensor_run(pulse) ? (nx * ny, total) : (total,))
+    return pulse
 end
 
-function _validate_coupled_pulse_spec(pulse::PulseSpec)
-    isnothing(pulse.tensor_nt) && throw(ArgumentError("pulse.tensor_nt must be provided for tensor runs"))
-    isnothing(pulse.tensor_nx) && throw(ArgumentError("pulse.tensor_nx must be provided for tensor runs"))
-    isnothing(pulse.tensor_ny) && throw(ArgumentError("pulse.tensor_ny must be provided for tensor runs"))
-    nt = Int(pulse.tensor_nt)
-    nx = Int(pulse.tensor_nx)
-    ny = Int(pulse.tensor_ny)
-    nt > 0 || throw(ArgumentError("pulse.tensor_nt must be > 0"))
-    nx > 0 || throw(ArgumentError("pulse.tensor_nx must be > 0"))
-    ny > 0 || throw(ArgumentError("pulse.tensor_ny must be > 0"))
-    length(pulse.samples) == nt * nx * ny ||
-        throw(ArgumentError("length(pulse.samples) must equal tensor_nt*tensor_nx*tensor_ny"))
-    xy = nx * ny
-    if !isnothing(pulse.spatial_frequency_grid)
-        length(pulse.spatial_frequency_grid) in (xy, nt * nx * ny) ||
-            throw(ArgumentError("spatial_frequency_grid must have length nx*ny or nt*nx*ny"))
-    end
-    if !isnothing(pulse.potential_grid)
-        length(pulse.potential_grid) in (xy, nt * nx * ny) ||
-            throw(ArgumentError("potential_grid must have length nx*ny or nt*nx*ny"))
-    end
-end
-
-function _solver_profile_defaults(profile::AbstractString, propagation_distance::Real)
-    distance = Float64(propagation_distance)
-    distance > 0.0 || throw(ArgumentError("propagation_distance must be > 0"))
+function _solver_profile_defaults(profile, propagation_distance::Float64)
+    distance = propagation_distance
     if profile == "balanced"
-        return Dict(
-            "starting_step_size" => distance / 200.0,
-            "max_step_size" => distance / 25.0,
-            "min_step_size" => distance / 20000.0,
-            "error_tolerance" => 1e-6,
-            "records" => 128,
+        return (
+            starting_step_size = distance / 200.0,
+            max_step_size = distance / 25.0,
+            min_step_size = distance / 20000.0,
+            error_tolerance = 1e-6,
+            num_records = 128,
         )
     elseif profile == "fast"
-        return Dict(
-            "starting_step_size" => distance / 120.0,
-            "max_step_size" => distance / 12.0,
-            "min_step_size" => distance / 4000.0,
-            "error_tolerance" => 5e-6,
-            "records" => 64,
+        return (
+            starting_step_size = distance / 120.0,
+            max_step_size = distance / 12.0,
+            min_step_size = distance / 4000.0,
+            error_tolerance = 5e-6,
+            num_records = 64,
         )
     elseif profile == "accuracy"
-        return Dict(
-            "starting_step_size" => distance / 400.0,
-            "max_step_size" => distance / 50.0,
-            "min_step_size" => distance / 80000.0,
-            "error_tolerance" => 1e-7,
-            "records" => 192,
+        return (
+            starting_step_size = distance / 400.0,
+            max_step_size = distance / 50.0,
+            min_step_size = distance / 80000.0,
+            error_tolerance = 1e-7,
+            num_records = 192,
         )
     end
-    throw(ArgumentError("unsupported preset '$profile'"))
+    throw(ArgumentError("preset must be one of \"fast\", \"balanced\", \"accuracy\"; got $(repr(profile))"))
+end
+
+# A sim config needs propagation parameters even when only its grid matters,
+# as for query_runtime_limits.
+const _QUERY_PROPAGATION = PropagationParams(1.0 / 200.0, 1.0 / 25.0, 1.0 / 20000.0, 1e-6, 1.0)
+
+_cfg_complex_ptr(values::Vector{ComplexF64}) =
+    Base.unsafe_convert(Ptr{NLOComplex}, reinterpret(NLOComplex, values))
+_cfg_complex_ptr_or_null(values) = values === nothing ? C_NULL : _cfg_complex_ptr(values)
+
+"""
+    _prepare_sim_config(pulse, propagation)
+
+The C `SimulationConfig` for a checked `pulse`, plus the arrays its pointers
+refer to, which the caller keeps alive for as long as it uses the config.
+"""
+function _prepare_sim_config(pulse::PulseSpec, propagation::PropagationParams)
+    keepalive = Any[]
+    total = length(pulse.samples)
+    tensor_mode = _is_tensor_run(pulse)
+    nt, nx, ny = tensor_mode ? (pulse.tensor_nt, pulse.tensor_nx, pulse.tensor_ny) : (total, 1, 1)
+
+    keep(values) = (values === nothing || push!(keepalive, values); values)
+    frequency = keep(pulse.frequency_grid === nothing ? _default_frequency_grid(nt, pulse.delta_time) : pulse.frequency_grid)
+    wt_values = keep(pulse.wt_axis)
+    kx_values = keep(pulse.kx_axis)
+    ky_values = keep(pulse.ky_axis)
+    spatial_values = keep(pulse.spatial_frequency_grid)
+    potential_values = pulse.potential_grid
+    if tensor_mode && potential_values !== nothing && length(potential_values) == nx * ny
+        # The core reads a full t-fastest volume, so a static x-y grid is
+        # broadcast along t by repeating each of its values nt times in a row.
+        potential_values = repeat(potential_values, inner = nt)
+    end
+    keep(potential_values)
+
+    pulse_period = pulse.pulse_period === nothing ? pulse.delta_time * nt : pulse.pulse_period
+    tensor = tensor_mode ?
+        Tensor3DDesc(Csize_t(nt), Csize_t(nx), Csize_t(ny), TENSOR_LAYOUT_XYT_T_FAST) :
+        Tensor3DDesc()
+    time = TimeGrid(Csize_t(nt), Cdouble(pulse_period), Cdouble(pulse.delta_time), _cfg_complex_ptr_or_null(wt_values))
+    spatial = SpatialGrid(
+        tensor_mode ? Csize_t(nx) : Csize_t(0),
+        tensor_mode ? Csize_t(ny) : Csize_t(0),
+        Cdouble(pulse.delta_x),
+        Cdouble(pulse.delta_y),
+        _cfg_complex_ptr_or_null(spatial_values),
+        _cfg_complex_ptr_or_null(kx_values),
+        _cfg_complex_ptr_or_null(ky_values),
+        _cfg_complex_ptr_or_null(potential_values),
+    )
+    sim = SimulationConfig(propagation, tensor, time, FrequencyGrid(_cfg_complex_ptr(frequency)), spatial)
+    return sim, keepalive
 end
 
 function _shift_constant_indices(expression::AbstractString, offset::Integer)
@@ -126,288 +136,204 @@ function _shift_constant_indices(expression::AbstractString, offset::Integer)
     return replace(String(expression), r"\bc(\d+)\b" => s -> "c$(parse(Int, s.captures[1]) + offset)")
 end
 
-function _coerce_operator_spec(context::AbstractString, operator)
-    operator isa AbstractString && throw(ArgumentError(
-        "$(context) operator must be a function, such as (A, w) -> im * w^2; " *
-        "expression strings and named presets such as \"$(operator)\" are not accepted"
-    ))
-    spec = if operator isa OperatorSpec
-        operator
-    elseif operator isa Function
-        OperatorSpec(fn = operator)
-    elseif operator isa NamedTuple || operator isa AbstractDict
-        getvalue(name) = operator isa NamedTuple ? get(operator, name, nothing) : get(operator, String(name), get(operator, name, nothing))
-        OperatorSpec(fn = getvalue(:fn), params = getvalue(:params))
-    else
-        throw(ArgumentError("$(context) operator must be a function, OperatorSpec, NamedTuple, or AbstractDict"))
+"""
+    _constant_bindings(bindings)
+
+`constant_bindings` as a `Dict{String, Float64}`, or `nothing` when unset.
+"""
+function _constant_bindings(bindings)
+    bindings === nothing && return nothing
+    bindings isa AbstractDict || bindings isa NamedTuple ||
+        throw(ArgumentError("constant_bindings must map names to values, such as Dict(\"beta2\" => -0.02)"))
+    out = Dict{String, Float64}()
+    for (name, value) in pairs(bindings)
+        value isa Real && isfinite(value) ||
+            throw(ArgumentError("constant_bindings: '$(name)' must be a finite real number"))
+        out[String(name)] = Float64(value)
     end
-    spec.fn isa Function || throw(ArgumentError("$(context) operator must define fn as a function"))
-    spec.params === nothing || spec.params isa AbstractDict ||
-        throw(ArgumentError("$(context) operator params must be a name => value mapping"))
-    return spec
+    return out
 end
 
+_operator_error(what, context, fn) = throw(ArgumentError(
+    "$(what) must be a function of its symbols ($(join(runtime_context_symbols(context), ", "))), " *
+    "such as (A, w) -> im * w^2; got $(repr(fn))"
+))
+
 """
-    _lower_operator!(constants, fn, context, bindings)
+    _lower_operator!(constants, fn, context, bindings, what)
 
 Trace `fn` in `context` into the expression text the C API compiles, appending
-any bound constants to `constants` and shifting the text's `cN` indices past the
-ones already there. Returns `nothing` when `fn` is `nothing`.
+any bound constants to `constants` and shifting the text's `cN` indices past
+the ones already there. Returns `nothing` when `fn` is `nothing`.
 """
-function _lower_operator!(constants::Vector{Float64}, fn, context::AbstractString, bindings)
+function _lower_operator!(constants::Vector{Float64}, fn, context::AbstractString, bindings, what::AbstractString)
     fn === nothing && return nothing
-    fn isa AbstractString && throw(ArgumentError(
-        "$(context) operator must be a function of its symbols ($(join(runtime_context_symbols(context), ", "))); " *
-        "expression strings are not accepted"
-    ))
-    fn isa Function || throw(ArgumentError("$(context) operator must be a function"))
+    fn isa Function || _operator_error(what, context, fn)
     traced, traced_constants = translate_callable(fn, context; constant_bindings = bindings)
     expr = _shift_constant_indices(traced, length(constants))
     append!(constants, traced_constants)
     return expr
 end
 
-function _storage_result_to_meta(storage_result::StorageResult)
-    return Dict(
-        "run_id" => _decode_run_id(storage_result.run_id),
-        "records_captured" => Int(storage_result.records_captured),
-        "records_spilled" => Int(storage_result.records_spilled),
-        "chunks_written" => Int(storage_result.chunks_written),
-        "db_size_bytes" => Int(storage_result.db_size_bytes),
-        "truncated" => Bool(storage_result.truncated != 0),
-    )
-end
+"""
+    _prepare_physics(tensor_mode; linear_operator, nonlinear_operator, ...)
 
-function _step_events_to_meta(step_events, count::Integer)
-    n = max(0, Int(count))
-    return Dict{String, Any}(
-        "step_index" => [Int(step_events[i].step_index) for i in 1:n],
-        "z" => [Float64(step_events[i].z_current) for i in 1:n],
-        "step_size" => [Float64(step_events[i].step_size) for i in 1:n],
-        "next_step_size" => [Float64(step_events[i].next_step_size) for i in 1:n],
-        "error" => [Float64(step_events[i].error) for i in 1:n],
-    )
-end
-
-function _progress_info_from_struct(info::CProgressInfo)
-    return ProgressInfo(
-        Int(info.event_type),
-        Int(info.step_index),
-        Int(info.reject_attempt),
-        Float64(info.z),
-        Float64(info.z_end),
-        Float64(info.percent),
-        Float64(info.step_size),
-        Float64(info.next_step_size),
-        Float64(info.error),
-        Float64(info.elapsed_seconds),
-        Float64(info.eta_seconds),
-    )
-end
-
-function _validate_explicit_record_z(z_values, distance::Real)
-    values = Float64.(collect(z_values))
-    isempty(values) && throw(ArgumentError("t_eval must be non-empty"))
-    prev = values[1]
-    (0.0 <= prev <= Float64(distance)) || throw(ArgumentError("t_eval values must be within [0, propagation_distance]"))
-    for current in Iterators.drop(values, 1)
-        current >= prev || throw(ArgumentError("t_eval must be monotonic nondecreasing"))
-        (0.0 <= current <= Float64(distance)) || throw(ArgumentError("t_eval values must be within [0, propagation_distance]"))
-        prev = current
-    end
-    return values
-end
-
-function _cfg_complex_ptr(values::Vector{ComplexF64})
-    return Base.unsafe_convert(Ptr{NLOComplex}, reinterpret(NLOComplex, values))
-end
-
-function _cfg_complex_ptr_or_null(values)
-    values === nothing && return C_NULL
-    return _cfg_complex_ptr(values)
-end
-
-_cfg_string_ptr(value::Union{Nothing, AbstractString}) = value === nothing ? C_NULL : Base.unsafe_convert(Cstring, value)
-
-function _cfg_constants_tuple(values)
-    constants = zeros(Float64, RUNTIME_OPERATOR_CONSTANTS_MAX)
-    count = min(length(values), RUNTIME_OPERATOR_CONSTANTS_MAX)
-    for idx in 1:count
-        constants[idx] = Float64(values[idx])
-    end
-    return Tuple(constants)
-end
-
-function prepare_sim_config(num_time_samples::Integer;
-                            propagation_distance::Real,
-                            starting_step_size::Real,
-                            max_step_size::Real,
-                            min_step_size::Real,
-                            error_tolerance::Real,
-                            pulse_period::Real,
-                            delta_time::Real,
-                            tensor_nt = nothing,
-                            tensor_nx = nothing,
-                            tensor_ny = nothing,
-                            tensor_layout::Integer = TENSOR_LAYOUT_XYT_T_FAST,
-                            frequency_grid,
-                            wt_axis = nothing,
-                            delta_x::Real = 1.0,
-                            delta_y::Real = 1.0,
-                            kx_axis = nothing,
-                            ky_axis = nothing,
-                            spatial_frequency_grid = nothing,
-                            potential_grid = nothing,
-                            runtime::Union{Nothing, RuntimeOperators} = nothing)
-    Int(num_time_samples) > 0 || throw(ArgumentError("num_time_samples must be > 0"))
-    keepalive = Any[]
-    total_samples = Int(num_time_samples)
-
-    tensor_mode = tensor_nt !== nothing && Int(tensor_nt) > 0
-    resolved_nt = total_samples
-    resolved_nx = 1
-    resolved_ny = 1
+The C `PhysicsConfig` and the strings and arrays it points to. Each operator is
+traced once into the C field the core compiles for the run type: a temporal
+run compiles the dispersion expressions, a tensor run the linear and potential
+ones, and both compile the nonlinear one.
+"""
+function _prepare_physics(tensor_mode::Bool;
+                          linear_operator,
+                          nonlinear_operator,
+                          linear_step_operator,
+                          potential_operator,
+                          constant_bindings,
+                          nonlinear_model,
+                          nonlinear_gamma,
+                          raman_fraction,
+                          raman_tau1,
+                          raman_tau2,
+                          shock_omega0,
+                          raman_response_time)
+    linear_operator isa Function || _operator_error("linear_operator", RUNTIME_CONTEXT_DISPERSION_FACTOR, linear_operator)
+    nonlinear_operator isa Function || _operator_error("nonlinear_operator", RUNTIME_CONTEXT_NONLINEAR, nonlinear_operator)
+    bindings = _constant_bindings(constant_bindings)
+    constants = Float64[]
+    lower(fn, context, what) = _lower_operator!(constants, fn, context, bindings, what)
     if tensor_mode
-        tensor_nx === nothing && throw(ArgumentError("tensor_nx is required when tensor_nt is set"))
-        tensor_ny === nothing && throw(ArgumentError("tensor_ny is required when tensor_nt is set"))
-        resolved_nt = Int(tensor_nt)
-        resolved_nx = Int(tensor_nx)
-        resolved_ny = Int(tensor_ny)
-        resolved_nt * resolved_nx * resolved_ny == total_samples ||
-            throw(ArgumentError("tensor_nt*tensor_nx*tensor_ny must match num_time_samples"))
+        linear_factor_expr = lower(linear_operator, RUNTIME_CONTEXT_LINEAR_FACTOR, "linear_operator")
+        linear_expr = lower(linear_step_operator, RUNTIME_CONTEXT_LINEAR, "linear_step_operator")
+        potential_expr = lower(potential_operator, RUNTIME_CONTEXT_POTENTIAL, "potential_operator")
+        dispersion_factor_expr = dispersion_expr = nothing
+    else
+        dispersion_factor_expr = lower(linear_operator, RUNTIME_CONTEXT_DISPERSION_FACTOR, "linear_operator")
+        dispersion_expr = lower(linear_step_operator, RUNTIME_CONTEXT_DISPERSION, "linear_step_operator")
+        linear_factor_expr = linear_expr = potential_expr = nothing
     end
+    nonlinear_expr = lower(nonlinear_operator, RUNTIME_CONTEXT_NONLINEAR, "nonlinear_operator")
+    length(constants) <= RUNTIME_OPERATOR_CONSTANTS_MAX || throw(ArgumentError(
+        "constant_bindings uses $(length(constants)) constant slots; at most $(RUNTIME_OPERATOR_CONSTANTS_MAX) are available"
+    ))
 
-    freq_values = ComplexF64.(collect(frequency_grid))
-    length(freq_values) in (resolved_nt, total_samples) ||
-        throw(ArgumentError("frequency_grid length must match resolved nt or full sample count"))
-    push!(keepalive, freq_values)
-
-    wt_values = wt_axis === nothing ? nothing : ComplexF64.(collect(wt_axis))
-    if wt_values !== nothing
-        length(wt_values) == resolved_nt || throw(ArgumentError("wt_axis length must match resolved nt"))
-        push!(keepalive, wt_values)
-    end
-
-    kx_values = kx_axis === nothing ? nothing : ComplexF64.(collect(kx_axis))
-    if kx_values !== nothing
-        length(kx_values) == resolved_nx || throw(ArgumentError("kx_axis length must match resolved nx"))
-        push!(keepalive, kx_values)
-    end
-
-    ky_values = ky_axis === nothing ? nothing : ComplexF64.(collect(ky_axis))
-    if ky_values !== nothing
-        length(ky_values) == resolved_ny || throw(ArgumentError("ky_axis length must match resolved ny"))
-        push!(keepalive, ky_values)
-    end
-
-    spatial_values = spatial_frequency_grid === nothing ? nothing : ComplexF64.(collect(spatial_frequency_grid))
-    if spatial_values !== nothing
-        valid_lengths = tensor_mode ? (resolved_nx * resolved_ny, total_samples) : (total_samples,)
-        length(spatial_values) in valid_lengths ||
-            throw(ArgumentError("spatial_frequency_grid length is inconsistent with the configured geometry"))
-        push!(keepalive, spatial_values)
-    end
-
-    potential_values = potential_grid === nothing ? nothing : ComplexF64.(collect(potential_grid))
-    if potential_values !== nothing
-        if tensor_mode
-            xy = resolved_nx * resolved_ny
-            if length(potential_values) == xy
-                potential_values = repeat(potential_values, resolved_nt)
-            elseif length(potential_values) != total_samples
-                throw(ArgumentError("potential_grid length must match nt*nx*ny or nx*ny for tensor runs"))
-            end
-        else
-            length(potential_values) == total_samples ||
-                throw(ArgumentError("potential_grid length must match num_time_samples for temporal runs"))
-        end
-        push!(keepalive, potential_values)
-    end
-
-    propagation = PropagationParams(
-        Cdouble(starting_step_size),
-        Cdouble(max_step_size),
-        Cdouble(min_step_size),
-        Cdouble(error_tolerance),
-        Cdouble(propagation_distance),
+    model = _enum_code(_NONLINEAR_MODELS, nonlinear_model, "nonlinear_model")
+    raman_response = _complex_vector_or_nothing(raman_response_time)
+    keepalive = Any[linear_factor_expr, linear_expr, potential_expr, dispersion_factor_expr,
+                    dispersion_expr, nonlinear_expr, raman_response]
+    constants_tuple = ntuple(i -> i <= length(constants) ? constants[i] : 0.0, RUNTIME_OPERATOR_CONSTANTS_MAX)
+    physics = PhysicsConfig(
+        _string_ptr(linear_factor_expr),
+        _string_ptr(linear_expr),
+        _string_ptr(potential_expr),
+        _string_ptr(dispersion_factor_expr),
+        _string_ptr(dispersion_expr),
+        _string_ptr(nonlinear_expr),
+        model,
+        Cdouble(nonlinear_gamma),
+        Cdouble(raman_fraction),
+        Cdouble(raman_tau1),
+        Cdouble(raman_tau2),
+        Cdouble(shock_omega0),
+        _cfg_complex_ptr_or_null(raman_response),
+        Csize_t(raman_response === nothing ? 0 : length(raman_response)),
+        Csize_t(length(constants)),
+        constants_tuple,
     )
-    tensor = tensor_mode ?
-        Tensor3DDesc(Csize_t(resolved_nt), Csize_t(resolved_nx), Csize_t(resolved_ny), Cint(tensor_layout)) :
-        Tensor3DDesc()
-    time = TimeGrid(
-        Csize_t(resolved_nt),
-        Cdouble(pulse_period),
-        Cdouble(delta_time),
-        wt_values === nothing ? C_NULL : _cfg_complex_ptr(wt_values),
+    return physics, keepalive
+end
+
+"""
+    _c_execution_options(options)
+
+The C execution options for an `ExecutionOptions`, or `nothing` when unset.
+"""
+function _c_execution_options(options)
+    options === nothing && return nothing
+    options isa ExecutionOptions ||
+        throw(ArgumentError("exec_options must be an ExecutionOptions; got $(typeof(options))"))
+    options.device_heap_fraction > 0.0 && options.device_heap_fraction <= 1.0 ||
+        throw(ArgumentError("exec_options.device_heap_fraction must be in (0, 1]"))
+    options.record_ring_target >= 0 || throw(ArgumentError("exec_options.record_ring_target must be >= 0"))
+    options.forced_device_budget_bytes >= 0 ||
+        throw(ArgumentError("exec_options.forced_device_budget_bytes must be >= 0"))
+    return CExecutionOptions(
+        _enum_code(_VECTOR_BACKENDS, options.backend_type, "exec_options.backend_type"),
+        _enum_code(_FFT_BACKENDS, options.fft_backend, "exec_options.fft_backend"),
+        Cdouble(options.device_heap_fraction),
+        Csize_t(options.record_ring_target),
+        Csize_t(options.forced_device_budget_bytes),
+        VulkanBackendConfig(),
     )
-    frequency = FrequencyGrid(_cfg_complex_ptr(freq_values))
-    spatial = SpatialGrid(
-        tensor_mode ? Csize_t(resolved_nx) : Csize_t(0),
-        tensor_mode ? Csize_t(resolved_ny) : Csize_t(0),
-        Cdouble(delta_x),
-        Cdouble(delta_y),
-        spatial_values === nothing ? C_NULL : _cfg_complex_ptr(spatial_values),
-        kx_values === nothing ? C_NULL : _cfg_complex_ptr(kx_values),
-        ky_values === nothing ? C_NULL : _cfg_complex_ptr(ky_values),
-        potential_values === nothing ? C_NULL : _cfg_complex_ptr(potential_values),
+end
+
+"""
+    _c_storage_options(options)
+
+The C storage options for a `StorageOptions`, or `nothing` when unset. The C
+struct points into `options`' strings, which the caller keeps alive.
+"""
+function _c_storage_options(options)
+    options === nothing && return nothing
+    options isa StorageOptions || throw(ArgumentError("storage must be a StorageOptions; got $(typeof(options))"))
+    isempty(options.sqlite_path) && throw(ArgumentError("storage.sqlite_path must be non-empty"))
+    options.run_id === nothing || ncodeunits(options.run_id) < STORAGE_RUN_ID_MAX ||
+        throw(ArgumentError("storage.run_id must be at most $(STORAGE_RUN_ID_MAX - 1) bytes"))
+    options.sqlite_max_bytes >= 0 || throw(ArgumentError("storage.sqlite_max_bytes must be >= 0"))
+    options.chunk_records >= 0 || throw(ArgumentError("storage.chunk_records must be >= 0"))
+    storage_is_available() ||
+        throw(NLOLibError("not_implemented", "SQLite storage is not available in this nlolib build"))
+    return CStorageOptions(
+        _string_ptr(options.sqlite_path),
+        _string_ptr(options.run_id),
+        Csize_t(options.sqlite_max_bytes),
+        Csize_t(options.chunk_records),
+        _enum_code(_CAP_POLICIES, options.cap_policy, "storage.cap_policy"),
+        Cint(options.log_final_output_field_to_db),
     )
+end
 
-    physics = PhysicsConfig()
-    if runtime !== nothing
-        runtime.linear_factor_fn !== nothing && runtime.dispersion_factor_fn !== nothing &&
-            throw(ArgumentError("linear_factor_fn and dispersion_factor_fn are aliases; provide only one"))
-        runtime.linear_fn !== nothing && runtime.dispersion_fn !== nothing &&
-            throw(ArgumentError("linear_fn and dispersion_fn are aliases; provide only one"))
+_storage_result(raw::CStorageResult) = StorageResult(
+    _decode_run_id(raw.run_id),
+    Int(raw.records_captured),
+    Int(raw.records_spilled),
+    Int(raw.chunks_written),
+    Int(raw.db_size_bytes),
+    raw.truncated != 0,
+)
 
-        # Each function is traced once, here at setup, into the expression text
-        # the C API compiles. Shifting each translation's cN indices past the
-        # constants already collected keeps slots unique across operators.
-        constants = Float64[]
-        lower(fn, context) = _lower_operator!(constants, fn, context, runtime.constant_bindings)
-        linear_factor_expr = runtime.linear_factor_fn !== nothing ?
-            lower(runtime.linear_factor_fn, RUNTIME_CONTEXT_LINEAR_FACTOR) :
-            lower(runtime.dispersion_factor_fn, RUNTIME_CONTEXT_DISPERSION_FACTOR)
-        linear_expr = runtime.linear_fn !== nothing ?
-            lower(runtime.linear_fn, RUNTIME_CONTEXT_LINEAR) :
-            lower(runtime.dispersion_fn, RUNTIME_CONTEXT_DISPERSION)
-        potential_expr = lower(runtime.potential_fn, RUNTIME_CONTEXT_POTENTIAL)
-        nonlinear_expr = lower(runtime.nonlinear_fn, RUNTIME_CONTEXT_NONLINEAR)
-        length(constants) <= RUNTIME_OPERATOR_CONSTANTS_MAX ||
-            throw(ArgumentError("runtime.constants exceeds RUNTIME_OPERATOR_CONSTANTS_MAX"))
+function _step_history(events::Vector{StepEvent}, written::Integer, dropped::Integer)
+    n = max(0, Int(written))
+    return StepHistory(
+        [Int(events[i].step_index) for i in 1:n],
+        [Float64(events[i].z_current) for i in 1:n],
+        [Float64(events[i].step_size) for i in 1:n],
+        [Float64(events[i].next_step_size) for i in 1:n],
+        [Float64(events[i].error) for i in 1:n],
+        Int(dropped),
+        length(events),
+    )
+end
 
-        raman_response = runtime.raman_response_time === nothing ? nothing : ComplexF64.(collect(runtime.raman_response_time))
-        if raman_response !== nothing
-            push!(keepalive, raman_response)
-        end
+_progress_info(info::CProgressInfo) = ProgressInfo(
+    _enum_name(_PROGRESS_EVENTS, info.event_type),
+    Int(info.step_index),
+    Int(info.reject_attempt),
+    Float64(info.z),
+    Float64(info.z_end),
+    Float64(info.percent),
+    Float64(info.step_size),
+    Float64(info.next_step_size),
+    Float64(info.error),
+    Float64(info.elapsed_seconds),
+    Float64(info.eta_seconds),
+)
 
-        for value in (linear_factor_expr, linear_expr, potential_expr, nonlinear_expr)
-            value === nothing || push!(keepalive, value)
-        end
-        linear_factor_str = linear_factor_expr
-        linear_str = linear_expr
-        potential_str = potential_expr
-        nonlinear_str = nonlinear_expr
-
-        physics = PhysicsConfig(
-            _cfg_string_ptr(linear_factor_str),
-            _cfg_string_ptr(linear_str),
-            _cfg_string_ptr(potential_str),
-            _cfg_string_ptr(linear_factor_str),
-            _cfg_string_ptr(linear_str),
-            _cfg_string_ptr(nonlinear_str),
-            Cint(runtime.nonlinear_model),
-            Cdouble(runtime.nonlinear_gamma),
-            Cdouble(runtime.raman_fraction),
-            Cdouble(runtime.raman_tau1),
-            Cdouble(runtime.raman_tau2),
-            Cdouble(runtime.shock_omega0),
-            raman_response === nothing ? C_NULL : _cfg_complex_ptr(raman_response),
-            Csize_t(raman_response === nothing ? 0 : length(raman_response)),
-            Csize_t(length(constants)),
-            _cfg_constants_tuple(constants),
-        )
-    end
-
-    simulation = SimulationConfig(propagation, tensor, time, frequency, spatial)
-    return PreparedSimConfig(simulation, physics, keepalive)
+function _validate_record_z(z_values, distance::Float64)
+    z_values isa AbstractVector{<:Real} || throw(ArgumentError("record_z must be a vector of positions"))
+    values = Float64.(collect(z_values))
+    isempty(values) && throw(ArgumentError("record_z must be non-empty"))
+    all(z -> 0.0 <= z <= distance, values) ||
+        throw(ArgumentError("record_z values must be within [0, propagation_distance]"))
+    issorted(values) || throw(ArgumentError("record_z must be nondecreasing"))
+    return values
 end

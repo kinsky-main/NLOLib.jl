@@ -6,6 +6,26 @@ using FFTW
 using LinearAlgebra
 using NLOLib
 
+# nlolib-example-parameters: begin
+nt = 128
+nx = 64
+ny = 64
+dt = 0.04
+dx = 0.15
+dy = 0.15
+temporal_width = 0.24
+x_width = 0.6
+y_width = 0.7
+beta2 = 0.08
+beta_t = -0.2
+z_final = 0.8
+num_records = 24
+starting_step_size = 0.02
+max_step_size = 0.08
+min_step_size = 1e-05
+error_tolerance = 1e-07
+# nlolib-example-parameters: end
+
 function gaussian_tensor_field(t_axis, x_axis, y_axis; temporal_width, x_width, y_width)
     temporal = exp.(-((t_axis ./ temporal_width) .^ 2))
     transverse = [exp(-((x / x_width)^2) - ((y / y_width)^2)) for y in y_axis, x in x_axis]
@@ -99,24 +119,10 @@ function main(argv = ARGS)
     args = parse_example_args("tensor_dispersion_3d", "Tensor 3D dispersion/diffraction with DB-backed run/replot.", argv)
     activate_example_theme!()
     NLOLib.set_progress_options(enabled = true, milestone_percent = 2, emit_on_step_adjust = true)
-    NLOLib.set_log_level(NLOLIB_LOG_LEVEL_INFO)
+    NLOLib.set_log_level("info")
     db = ExampleRunDB(args[:db_path])
-    example_name = "tensor_dispersion_3d_rk4ip"
+    example_name = "tensor_dispersion_3d"
     case_key = "default"
-
-    nt = 256
-    nx = 128
-    ny = 128
-    dt = 0.04
-    dx = 0.15
-    dy = 0.15
-    temporal_width = 0.24
-    x_width = 0.70
-    y_width = 0.70
-    beta2 = 0.08
-    beta_t = -0.20
-    z_final = 0.80
-    num_records = 100
 
     t_axis = centered_time_grid(nt, dt)
     x_axis = centered_spatial_grid(nx, dx)
@@ -145,30 +151,28 @@ function main(argv = ARGS)
             delta_y = dy,
         )
         linear = (A, wt, kx, ky) -> im * ((0.5 * beta2) * wt^2 + beta_t * (kx^2 + ky^2))
-        exec = default_execution_options(backend_type = VECTOR_BACKEND_CPU, fft_backend = FFT_BACKEND_FFTW)
+        exec = ExecutionOptions(backend_type = "auto", fft_backend = "auto")
         storage = storage_kwargs(db; example_name = example_name, run_group = run_group, case_key = case_key, chunk_records = 2)
         result = NLOLib.propagate(
             pulse,
             linear,
             (A, I) -> 0.0;
-            t_span = (0.0, z_final),
-            t_eval = collect(range(0.0, z_final, length = num_records)),
-            first_step = 0.02,
-            max_step = 0.08,
-            min_step = 1e-5,
-            rtol = 1e-7,
+            propagation_distance = z_final,
+            num_records = num_records,
+            starting_step_size = starting_step_size,
+            max_step_size = max_step_size,
+            min_step_size = min_step_size,
+            error_tolerance = error_tolerance,
             exec_options = exec,
-            sqlite_path = storage.sqlite_path,
-            run_id = storage.run_id,
-            chunk_records = storage.chunk_records,
+            storage = StorageOptions(; storage...),
         )
         z_axis = result.z_axis
         records_flat = permutedims(result.records, (2, 1))
-        save_case_from_solver_meta!(db;
+        save_case_from_result!(db;
             example_name = example_name,
             run_group = run_group,
             case_key = case_key,
-            solver_meta = result.meta,
+            result = result,
             meta = Dict("nt" => nt, "nx" => nx, "ny" => ny, "dt" => dt, "dx" => dx, "dy" => dy, "temporal_width" => temporal_width, "x_width" => x_width, "y_width" => y_width, "beta2" => beta2, "beta_t" => beta_t))
     end
 
@@ -185,8 +189,12 @@ function main(argv = ARGS)
 
     save_tensor_plots(args[:output_dir], z_axis, t_axis, x_axis, y_axis, records_tyx, reference_records, field_error_curve, intensity_error_curve)
 
-    println("tensor 3D dispersion summary")
-    println("  final field error = $(field_error_curve[end])")
+    initial_power = sum(abs2, records_tyx[1, :, :, :])
+    power_drift = abs(sum(abs2, records_tyx[end, :, :, :]) - initial_power) / max(initial_power, 1e-30)
+
+    println("tensor 3D dispersion example completed (run_group=$(run_group)).")
+    report_metric("final field relative error vs exact linear solution", field_error_curve[end])
+    report_metric("power drift", power_drift)
     println("  final intensity error = $(intensity_error_curve[end])")
     println("  marginal profile errors = t=$(temporal_profile_error), x=$(x_profile_error), y=$(y_profile_error)")
     return maximum((intensity_error_curve[end], temporal_profile_error, x_profile_error, y_profile_error))

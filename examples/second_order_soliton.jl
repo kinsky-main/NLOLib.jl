@@ -5,6 +5,21 @@ using CairoMakie
 using FFTW
 using NLOLib
 
+# nlolib-example-parameters: begin
+n = 4096
+tfwhm = 0.1
+beta2 = -0.01
+gamma = 0.01
+soliton_order = 2
+num_records = 160
+starting_step_size = 0.0001
+max_step_size = 0.01
+min_step_size = 1e-09
+error_tolerance = 1e-10
+# nlolib-example-parameters: end
+# Derived: t0 = tfwhm / (2 acosh(sqrt(2))), dt = 40 t0 / n,
+# z_final = (pi / 2) t0^2 / |beta2|.
+
 function sech(x)
     return 1.0 ./ cosh.(x)
 end
@@ -111,25 +126,20 @@ function main(argv = ARGS)
     args = parse_example_args("second_order_soliton", "Second-order soliton validation with DB-backed run/replot.", argv)
     activate_example_theme!()
     NLOLib.set_progress_options(enabled = true, milestone_percent = 2, emit_on_step_adjust = true)
-    NLOLib.set_log_level(NLOLIB_LOG_LEVEL_INFO)
+    NLOLib.set_log_level("info")
     db = ExampleRunDB(args[:db_path])
-    example_name = "second_order_soliton_rk4ip"
+    example_name = "second_order_soliton"
     case_key = "default"
 
-    beta2 = -0.01
-    gamma = 0.01
     alpha = 0.0
-    tfwhm = 100e-3
-    t0 = tfwhm / (2.0 * log(1.0 + sqrt(2.0)))
+    t0 = tfwhm / (2.0 * acosh(sqrt(2.0)))
     p0 = abs(beta2) / (gamma * t0 * t0)
     z_final = second_order_soliton_period(beta2, t0)
-    n = 2^12
     dt = (40.0 * t0) / n
     T = centered_time_grid(n, dt)
     t = to_dimensionless_time(T, t0)
     omega = 2.0 * π .* FFTW.fftfreq(n, 1.0 / dt)
-    field0 = to_physical_envelope(2.0 .* sech(t), 0.0, p0, alpha)
-    num_records = 160
+    field0 = to_physical_envelope(soliton_order .* sech(t), 0.0, p0, alpha)
 
     if args[:replot]
         run_group = resolve_replot_group(db, example_name, isempty(args[:run_group]) ? nothing : args[:run_group])
@@ -147,7 +157,7 @@ function main(argv = ARGS)
         )
         linear = (A, w) -> im * (0.5 * beta2) * w^2 - 0.5 * alpha
         nonlinear = (A, I) -> im * gamma * A * I
-        exec = default_execution_options(backend_type = VECTOR_BACKEND_CPU, fft_backend = FFT_BACKEND_FFTW)
+        exec = ExecutionOptions(backend_type = "auto")
         storage = storage_kwargs(db;
             example_name = example_name,
             run_group = run_group,
@@ -157,29 +167,25 @@ function main(argv = ARGS)
             pulse,
             linear,
             nonlinear;
-            t_span = (0.0, z_final),
-            t_eval = collect(range(0.0, z_final, length = num_records)),
-            first_step = 1e-4,
-            max_step = 0.01,
-            min_step = 1e-9,
-            rtol = 1e-10,
+            propagation_distance = z_final,
+            num_records = num_records,
+            starting_step_size = starting_step_size,
+            max_step_size = max_step_size,
+            min_step_size = min_step_size,
+            error_tolerance = error_tolerance,
             exec_options = exec,
             capture_step_history = true,
             step_history_capacity = 200000,
-            sqlite_path = storage.sqlite_path,
-            run_id = storage.run_id,
-            chunk_records = storage.chunk_records,
-            sqlite_max_bytes = storage.sqlite_max_bytes,
-            log_final_output_field_to_db = storage.log_final_output_field_to_db,
+            storage = StorageOptions(; storage...),
         )
         records = permutedims(result.records, (2, 1))
         z_axis = result.z_axis
-        telemetry = get(result.meta, "step_history", nothing)
-        save_case_from_solver_meta!(db;
+        telemetry = step_history_dict(result.step_history)
+        save_case_from_result!(db;
             example_name = example_name,
             run_group = run_group,
             case_key = case_key,
-            solver_meta = result.meta,
+            result = result,
             meta = Dict(
                 "beta2" => beta2,
                 "gamma" => gamma,
@@ -205,7 +211,7 @@ function main(argv = ARGS)
 
     println("second-order soliton summary")
     println("  run_group = $(run_group)")
-    println("  epsilon = $(epsilon)")
+    report_metric("epsilon (relative L2 intensity error at z_final)", epsilon)
     println("  peak numerical intensity = $(maximum(abs2.(normalized_records)))")
     println("  peak analytical intensity = $(maximum(abs2.(reference_records)))")
     return epsilon

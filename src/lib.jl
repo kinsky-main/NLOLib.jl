@@ -46,9 +46,9 @@ function _candidate_library_paths(path::Union{Nothing, AbstractString})
     repo_root = normpath(joinpath(package_root, ".."))
     candidates = String[]
 
-    if path !== nothing
-        push!(candidates, normpath(String(path)))
-    end
+    # An explicit path is the only candidate, so a wrong one fails rather than
+    # quietly loading a different library.
+    path === nothing || return filter(isfile, [normpath(String(path))])
 
     env_path = get(ENV, "NLOLIB_LIBRARY", "")
     if !isempty(env_path)
@@ -70,11 +70,28 @@ function _candidate_library_paths(path::Union{Nothing, AbstractString})
     return unique(filter(isfile, candidates))
 end
 
-function load(path::Union{Nothing, AbstractString} = nothing)
+"""
+    load(path = nothing)
+
+Load the nlolib shared library: from `path` when given, and only from there;
+otherwise from `NLOLIB_LIBRARY`, the package artifact or a built checkout, in
+that order.
+Every other function loads the library on first use, so calling `load` is only
+needed to pick a specific file. Throws `NLOLibError` when no library loads.
+"""
+function load(path = nothing)
+    path === nothing || path isa AbstractString ||
+        throw(ArgumentError("load: path must be a string or nothing"))
     current = _LIB_HANDLE[]
     if current != C_NULL && (path === nothing || normpath(String(path)) == _LIB_PATH[])
-        return current
+        return nothing
     end
+
+    candidates = _candidate_library_paths(path)
+    isempty(candidates) && throw(NLOLibError(nothing, path !== nothing ?
+        "no nlolib shared library at $(path)" :
+        "cannot locate the nlolib shared library; install NLOLib so its artifact is available, " *
+        "set NLOLIB_LIBRARY, or build the julia_stage target"))
 
     if current != C_NULL
         Libdl.dlclose(current)
@@ -82,24 +99,27 @@ function load(path::Union{Nothing, AbstractString} = nothing)
         _LIB_PATH[] = ""
     end
 
-    candidates = _candidate_library_paths(path)
-    isempty(candidates) && error("Cannot locate nlolib shared library. Install NLOLib so its artifact is available, set NLOLIB_LIBRARY, or build the julia_stage target.")
-
-    errors = String[]
     for candidate in candidates
         handle = Libdl.dlopen_e(candidate)
         if handle != C_NULL
             _LIB_HANDLE[] = handle
             _LIB_PATH[] = candidate
-            return handle
+            return nothing
         end
-        push!(errors, candidate)
     end
 
-    error("Failed to load nlolib shared library from: " * join(errors, ", "))
+    throw(NLOLibError(nothing, "failed to load the nlolib shared library from: " * join(candidates, ", ")))
 end
 
+"""
+    loaded_library_path()
+
+Path of the loaded nlolib shared library, or `""` before it is loaded.
+"""
 loaded_library_path() = _LIB_PATH[]
 
-_handle() = _LIB_HANDLE[] == C_NULL ? load() : _LIB_HANDLE[]
+function _handle()
+    _LIB_HANDLE[] == C_NULL && load()
+    return _LIB_HANDLE[]
+end
 _sym(name::Symbol) = Libdl.dlsym(_handle(), name)

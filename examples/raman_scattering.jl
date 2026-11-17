@@ -5,6 +5,22 @@ using CairoMakie
 using FFTW
 using NLOLib
 
+# nlolib-example-parameters: begin
+n = 4096
+dt = 0.002
+beta2 = -0.01
+gamma = 1.4
+pulse_width = 0.08
+z_final = 0.4
+num_records = 80
+f_r = 0.18
+tau1 = 0.0522
+tau2 = 0.032
+shock_omega0 = 0.0
+error_tolerance = 2e-08
+# nlolib-example-parameters: end
+# Derived: step sizes z_final / 500, / 80 and / 20000.
+
 function spectral_centroid(freq_axis, spectral_intensity)
     weights = Float64.(spectral_intensity)
     numer = sum(weights .* reshape(freq_axis, 1, :), dims = 2)
@@ -97,23 +113,11 @@ function main(argv = ARGS)
     args = parse_example_args("raman_scattering", "Raman self-frequency-shift validation with DB-backed run/replot.", argv)
     activate_example_theme!()
     NLOLib.set_progress_options(enabled = true, milestone_percent = 2, emit_on_step_adjust = true)
-    NLOLib.set_log_level(NLOLIB_LOG_LEVEL_INFO)
+    NLOLib.set_log_level("info")
     db = ExampleRunDB(args[:db_path])
-    example_name = "raman_scattering_rk4ip"
+    example_name = "raman_scattering"
     kerr_case_key = "kerr_only"
     raman_case_key = "kerr_raman_shock"
-
-    n = 2^11
-    dt = 0.002
-    beta2 = -0.01
-    gamma = 1.40
-    z_final = 0.40
-    pulse_width = 0.08
-    num_records = 120
-    f_r = 0.18
-    tau1 = 0.0522
-    tau2 = 0.0320
-    shock_omega0 = 0.0
 
     t_axis = centered_time_grid(n, dt)
     omega = 2.0 * π .* FFTW.fftfreq(n, 1.0 / dt)
@@ -132,15 +136,15 @@ function main(argv = ARGS)
         run_group = begin_group(db, example_name, isempty(args[:run_group]) ? nothing : args[:run_group])
         pulse = PulseSpec(samples = field0, delta_time = dt, pulse_period = n * dt, frequency_grid = ComplexF64.(omega))
         linear = (A, w) -> im * (0.5 * beta2) * w^2
-        exec = default_execution_options(backend_type = VECTOR_BACKEND_CPU, fft_backend = FFT_BACKEND_FFTW)
+        exec = ExecutionOptions(backend_type = "auto")
 
         base_kwargs = (
-            t_span = (0.0, z_final),
-            t_eval = collect(range(0.0, z_final, length = num_records)),
-            first_step = z_final / 500.0,
-            max_step = z_final / 80.0,
-            min_step = z_final / 20000.0,
-            rtol = 2e-6,
+            propagation_distance = z_final,
+            num_records = num_records,
+            starting_step_size = z_final / 500.0,
+            max_step_size = z_final / 80.0,
+            min_step_size = z_final / 20000.0,
+            error_tolerance = error_tolerance,
             exec_options = exec,
         )
 
@@ -150,15 +154,13 @@ function main(argv = ARGS)
             linear,
             (A, I) -> im * gamma * A * I;
             base_kwargs...,
-            sqlite_path = storage_kerr.sqlite_path,
-            run_id = storage_kerr.run_id,
-            chunk_records = storage_kerr.chunk_records,
+            storage = StorageOptions(; storage_kerr...),
         )
-        save_case_from_solver_meta!(db;
+        save_case_from_result!(db;
             example_name = example_name,
             run_group = run_group,
             case_key = kerr_case_key,
-            solver_meta = kerr_result.meta,
+            result = kerr_result,
             meta = Dict("n" => n, "dt" => dt, "beta2" => beta2, "gamma" => gamma, "z_final" => z_final, "pulse_width" => pulse_width))
 
         storage_raman = storage_kwargs(db; example_name = example_name, run_group = run_group, case_key = raman_case_key, chunk_records = 8)
@@ -167,21 +169,19 @@ function main(argv = ARGS)
             linear,
             (A, I) -> 0.0;
             base_kwargs...,
-            nonlinear_model = NONLINEAR_MODEL_KERR_RAMAN,
+            nonlinear_model = "kerr_raman",
             nonlinear_gamma = gamma,
             raman_fraction = f_r,
             raman_tau1 = tau1,
             raman_tau2 = tau2,
             shock_omega0 = shock_omega0,
-            sqlite_path = storage_raman.sqlite_path,
-            run_id = storage_raman.run_id,
-            chunk_records = storage_raman.chunk_records,
+            storage = StorageOptions(; storage_raman...),
         )
-        save_case_from_solver_meta!(db;
+        save_case_from_result!(db;
             example_name = example_name,
             run_group = run_group,
             case_key = raman_case_key,
-            solver_meta = raman_result.meta,
+            result = raman_result,
             meta = Dict("n" => n, "dt" => dt, "beta2" => beta2, "gamma" => gamma, "z_final" => z_final, "pulse_width" => pulse_width, "f_r" => f_r, "tau1" => tau1, "tau2" => tau2, "shock_omega0" => shock_omega0))
 
         z_axis = raman_result.z_axis
@@ -202,7 +202,7 @@ function main(argv = ARGS)
     save_raman_plots(args[:output_dir], z_axis ./ ld, t_axis, raman_records, omega_axis, raman_spec_map, centered_num, centered_pred)
 
     println("raman scattering summary")
-    println("  centroid curve relative error = $(centroid_curve_rel_error)")
+    report_metric("centroid-curve relative error vs prediction", centroid_curve_rel_error)
     println("  final centroid shift (raman-kerr) = $(raman_centroid[end] - kerr_centroid[end])")
     println("  final predicted shift = $(predicted_centroid[end] - predicted_centroid[1])")
     return centroid_curve_rel_error

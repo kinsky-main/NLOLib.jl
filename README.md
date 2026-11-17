@@ -37,7 +37,7 @@ result = propagate(pulse,
                    (A, w) -> im * (beta2 / 2) * w^2,  # linear (dispersion) operator
                    (A, I) -> im * gamma * A * I;      # nonlinear operator, I = |A|^2
                    propagation_distance = pi / 2,
-                   output = "final")
+                   num_records = 1)  # 1 record: the final field only
 
 println("peak power in:  ", maximum(abs2, pulse.samples))
 println("peak power out: ", maximum(abs2, result.final))
@@ -46,25 +46,50 @@ println("peak power out: ", maximum(abs2, result.final))
 Each function is traced once, at setup, into the compiled operator program, so
 its body may use captured numbers and ordinary arithmetic (`+ - * / ^`, `exp`,
 `log`, `sqrt`, `sin`, `cos`) but cannot branch on the field. The linear operator
-may take `A`, `w`, `wt`; tensor runs use `(A, wt, kx, ky)`; the nonlinear
-operator takes `A`, `I`, `V`. Arguments bind by name, so `(w, A) -> ...` works.
+takes `(A, w)` for a temporal run and `(A, wt, kx, ky, x, y, t)` for a tensor
+run, where `w` and `wt` name the same axis; the nonlinear operator takes
+`(A, I, V)`. Arguments bind by name, so `(w, A) -> ...` works, and a symbol the
+run does not provide is an `ArgumentError`.
 
-The main entry points are `NLOLib.NLolib`, `NLOLib.RuntimeOperators`,
-`NLOLib.PulseSpec`, `NLOLib.physics_config`, `NLOLib.query_runtime_limits`,
-`NLOLib.propagate` and `NLOLib.propagate!`.
+Every option of `propagate` is a named keyword, and a misspelled one is a
+`MethodError`. Records come back at `record_z` when given, otherwise as
+`num_records` evenly spaced records, where `num_records = 1` is the final
+field only. Enum-style options are lowercase strings:
 
-`NLOLib.load()` resolves the library from an explicit path, then
-`ENV["NLOLIB_LIBRARY"]`, then the installed artifact.
+```julia
+result = propagate(pulse, linear, nonlinear;
+                   propagation_distance = 1.0,
+                   preset = "accuracy",
+                   num_records = 64,
+                   exec_options = ExecutionOptions(backend_type = "cpu"),
+                   storage = StorageOptions(sqlite_path = "run.sqlite"))
+```
+
+The package exports `propagate`, the data types `PulseSpec`,
+`ExecutionOptions`, `StorageOptions`, `PropagationResult`, `StepHistory`,
+`StorageResult`, `ProgressInfo`, `RuntimeLimits` and `PerfProfileSnapshot`,
+the errors `NLOLibError` and `PropagationAbortedError`, and the library
+functions `load`, `loaded_library_path`, `query_runtime_limits`,
+`storage_is_available`, `tensor_record_view`, the `set_log_*` /
+`read_log_buffer` / `clear_log_buffer` / `set_progress_*` controls and the
+`perf_profile_*` counters. Each has a docstring.
+
+`load()` resolves the library from `ENV["NLOLIB_LIBRARY"]`, then the installed
+artifact, then a build tree; `load(path)` uses that file only.
 
 ## Examples
 
-The [`examples/`](examples) directory is a Julia project of its own with
-runnable scripts: second-order and high-order GRIN solitons, Raman scattering,
-and 3D tensor dispersion.
+The [`examples/`](examples) directory is a Julia project of its own holding the
+example set shared with the Python and MATLAB bindings: `quickstart`,
+`linear_drift`, `spm`, `second_order_soliton`, `conservation_checks`,
+`raman_scattering`, `tensor_dispersion_3d`, `transverse_grin_beam`,
+`spatiotemporal_kerr_bullet`, `grin_soliton_fission`,
+`high_order_grin_soliton` and `sqlite_storage`. Each prints its validation
+metrics as `label: value` and writes its figures to `examples/output/<name>/`.
 
 ```bash
 julia --project=examples -e 'using Pkg; Pkg.instantiate()'
-julia --project=examples examples/second_order_soliton_rk4ip.jl
+julia --project=examples examples/quickstart.jl
 ```
 
 ## Documentation

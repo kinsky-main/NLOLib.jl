@@ -1,4 +1,13 @@
 using LinearAlgebra
+using Printf
+
+"""
+    report_metric(label, value)
+
+Print one shared-example metric as `label: value`, `value` in `%.6e`; the label
+is the same in every binding.
+"""
+report_metric(label::AbstractString, value::Real) = @printf("%s: %.6e\n", label, Float64(value))
 
 function relative_l2_intensity_error(prediction, reference)
     pred = ComplexF64.(prediction)
