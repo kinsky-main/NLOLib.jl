@@ -223,16 +223,25 @@ function save_case!(db::ExampleRunDB;
     end
 end
 
-function save_case_from_solver_meta!(db::ExampleRunDB;
-                                     example_name::AbstractString,
-                                     run_group::AbstractString,
-                                     case_key::AbstractString,
-                                     solver_meta::Dict{String, Any},
-                                     meta = nothing,
-                                     save_step_history::Bool = false)
-    storage_result = get(solver_meta, "storage_result", nothing)
-    storage_result isa Dict || error("solver meta does not contain storage_result")
-    run_id = String(get(storage_result, "run_id", ""))
+"""
+    step_history_dict(step_history)
+
+A `StepHistory` from `propagate` as the `Dict` the example database stores, or
+`nothing` when the run captured none.
+"""
+step_history_dict(step_history) = step_history === nothing ? nothing :
+    Dict{String, Any}(String(name) => getfield(step_history, name) for name in fieldnames(typeof(step_history)))
+
+function save_case_from_result!(db::ExampleRunDB;
+                                example_name::AbstractString,
+                                run_group::AbstractString,
+                                case_key::AbstractString,
+                                result,
+                                meta = nothing,
+                                save_step_history::Bool = false)
+    storage_result = result.storage_result
+    storage_result === nothing && error("result has no storage_result; run with storage = StorageOptions(...)")
+    run_id = String(storage_result.run_id)
     isempty(run_id) && error("solver storage_result did not provide a run_id")
     _emit_db_progress("writing metadata for $(case_key)", 0, 1)
     save_case!(db;
@@ -241,7 +250,7 @@ function save_case_from_solver_meta!(db::ExampleRunDB;
         case_key = case_key,
         run_id = run_id,
         meta = meta)
-    save_step_history && save_step_history!(db; run_id = run_id, step_history = get(solver_meta, "step_history", nothing))
+    save_step_history && save_step_history!(db; run_id = run_id, step_history = step_history_dict(result.step_history))
     _emit_db_progress("writing metadata for $(case_key)", 1, 1)
     return run_id
 end

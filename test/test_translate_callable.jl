@@ -145,93 +145,62 @@ end
 end
 
 @testset "context symbols" begin
+    @test runtime_context_symbols("dispersion_factor") == ["A", "w"]
+    @test runtime_context_symbols("dispersion") == ["A", "D", "h", "w", "V"]
+    @test runtime_context_symbols("linear_factor") == ["A", "wt", "kx", "ky", "x", "y", "t"]
+    @test runtime_context_symbols("linear") == ["A", "D", "h", "wt", "kx", "ky", "x", "y", "t", "V"]
+    @test runtime_context_symbols("potential") == ["x", "y", "t"]
     @test runtime_context_symbols("nonlinear") == ["A", "I", "V"]
-    @test runtime_context_symbols("potential") == ["x", "y", "t", "wt", "kx", "ky"]
     @test_throws ArgumentError runtime_context_symbols("nope")
 end
 
-@testset "all six runtime slots are wired" begin
-    # Each function traces to the expected text, and RuntimeOperators takes it
-    # in the matching slot.
-    for (field, fn, context, expected) in (
-        (:linear_factor_fn, (A, wt) -> im * (0.02 * wt^2), "linear_factor",
-         "i*0.02*wt^2"),
-        (:dispersion_factor_fn, (A, w) -> im * (0.02 * w^2), "dispersion_factor",
-         "i*0.02*w^2"),
-        (:linear_fn, (A, D, h) -> exp(h * D), "linear", "exp(h*D)"),
-        (:dispersion_fn, (A, D, h, w) -> exp(h * D), "dispersion", "exp(h*D)"),
-        (:potential_fn, (x, y) -> 0.0002 * (x^2 + y^2), "potential",
-         "0.00020000000000000001*(x^2+y^2)"),
-        (:nonlinear_fn, (A, I, V) -> im * A * I, "nonlinear", "i*A*I"),
-    )
-        traced, _ = translate_callable(fn, context)
-        @test traced == expected
-        # The field exists on RuntimeOperators and takes a function.
-        operators = RuntimeOperators(; (field => fn,)...)
-        @test getfield(operators, field) === fn
-    end
+@testset "w and wt name the same axis" begin
+    @test translate_callable((A, wt) -> im * wt^2, "dispersion_factor")[1] == "i*w^2"
+    @test translate_callable((A, D, h, wt) -> exp(h * D) * wt, "dispersion")[1] == "exp(h*D)*w"
+    @test translate_callable((A, w) -> im * w^2, "linear_factor")[1] == "i*wt^2"
+    @test translate_callable((A, D, h, w) -> exp(h * D) * w, "linear")[1] == "exp(h*D)*wt"
 end
 
-@testset "aliased slots are rejected" begin
-    duplicated = RuntimeOperators(
-        linear_factor_fn = (A, wt) -> im * wt,
-        dispersion_factor_fn = (A, wt) -> im * wt,
-        linear_fn = (A, D, h) -> exp(h * D),
-        nonlinear_fn = (A, I) -> 0.0,
-    )
-    @test_throws ArgumentError NLOLib.prepare_sim_config(4;
-        propagation_distance = 0.001,
-        starting_step_size = 1e-4,
-        max_step_size = 1e-3,
-        min_step_size = 1e-6,
-        error_tolerance = 1e-7,
-        delta_time = 0.02,
-        pulse_period = 0.08,
-        frequency_grid = zeros(ComplexF64, 4),
-        runtime = duplicated,
-    )
-end
-
-@testset "string operators are rejected" begin
-    # Operators are functions only; the string-expression surface is gone.
-    for field in (:linear_factor_expr, :linear_expr, :potential_expr,
-                  :dispersion_factor_expr, :dispersion_expr, :nonlinear_expr)
-        @test !hasfield(RuntimeOperators, field)
-        @test_throws MethodError RuntimeOperators(; (field => "0",)...)
-    end
-    @test !hasfield(OperatorSpec, :expr)
-    @test_throws ArgumentError RuntimeOperators(nonlinear_fn = "i*A*I") |>
-        runtime -> NLOLib.prepare_sim_config(4;
-            propagation_distance = 0.001,
-            starting_step_size = 1e-4,
-            max_step_size = 1e-3,
-            min_step_size = 1e-6,
-            error_tolerance = 1e-7,
-            delta_time = 0.02,
-            pulse_period = 0.08,
-            frequency_grid = zeros(ComplexF64, 4),
-            runtime = runtime,
-        )
-    @test_throws MethodError physics_config(nonlinear_expr = "i*A*I")
-    @test_throws ArgumentError physics_config(nonlinear_fn = "i*A*I")
-    pulse = PulseSpec(samples = ones(ComplexF64, 4), delta_time = 0.02)
-    for operator in ("gvd", "i*w*w", OperatorSpec(fn = "i*w*w"), (fn = "i*w*w",))
-        @test_throws ArgumentError NLOLib.from_pulse(NLOLib.PropagateRequestBuilder(), pulse,
-                                                     operator, (A, I) -> im * A * I;
-                                                     propagation_distance = 0.1)
-    end
-    @test_throws ArgumentError NLOLib.from_pulse(NLOLib.PropagateRequestBuilder(), pulse,
-                                                 (A, w) -> im * w^2, "kerr";
-                                                 propagation_distance = 0.1)
+@testset "symbols a context does not provide" begin
+    # The C parser rejects these, so the tracer does too, before the C call.
+    @test_throws ArgumentError translate_callable((A, kx) -> kx, "dispersion_factor")
+    @test_throws ArgumentError translate_callable((A, w, t) -> w * t, "dispersion_factor")
+    @test_throws ArgumentError translate_callable((A, D, h, x) -> x, "dispersion")
+    @test_throws ArgumentError translate_callable((x, wt) -> x * wt, "potential")
+    @test_throws ArgumentError translate_callable((x, kx) -> x * kx, "potential")
+    @test_throws ArgumentError translate_callable((A, I, x) -> x, "nonlinear")
+    @test_throws ArgumentError translate_callable((A, I) -> I, "dispersion_factor")
     err = try
-        NLOLib.from_pulse(NLOLib.PropagateRequestBuilder(), pulse, "gvd", "kerr";
-                          propagation_distance = 0.1)
+        translate_callable((A, kx) -> kx, "dispersion_factor")
+        nothing
+    catch exc
+        exc
+    end
+    @test occursin("does not provide 'kx'", err.msg)
+end
+
+@testset "operators that are not functions are rejected" begin
+    pulse = PulseSpec(samples = ones(ComplexF64, 4), delta_time = 0.02)
+    linear = (A, w) -> im * w^2
+    nonlinear = (A, I) -> im * A * I
+    for operator in ("gvd", "i*w*w", (fn = linear,), nothing, 1.0)
+        @test_throws ArgumentError propagate(pulse, operator, nonlinear; propagation_distance = 0.1)
+        @test_throws ArgumentError propagate(pulse, linear, operator; propagation_distance = 0.1)
+    end
+    for name in (:linear_step_operator, :potential_operator)
+        @test_throws ArgumentError propagate(pulse, linear, nonlinear;
+                                             propagation_distance = 0.1, (name => "exp(h*D)",)...)
+    end
+    err = try
+        propagate(pulse, "gvd", "kerr"; propagation_distance = 0.1)
         nothing
     catch exc
         exc
     end
     @test err isa ArgumentError
-    @test occursin("must be a function", err.msg)
+    @test occursin("linear_operator must be a function", err.msg)
+    # A symbol the run type's context does not provide fails before the C call.
+    @test_throws ArgumentError propagate(pulse, (A, kx) -> kx, nonlinear; propagation_distance = 0.1)
 end
 
 end

@@ -125,7 +125,7 @@ struct VulkanBackendConfig
     descriptor_set_count_override::UInt32
 end
 
-struct ExecutionOptions
+struct CExecutionOptions
     backend_type::Cint
     fft_backend::Cint
     device_heap_fraction::Cdouble
@@ -134,6 +134,12 @@ struct ExecutionOptions
     vulkan::VulkanBackendConfig
 end
 
+"""
+    RuntimeLimits
+
+What `query_runtime_limits` returns: the fields of the C `runtime_limits`, in
+its order. `storage_available` is nonzero when the build can write SQLite.
+"""
 struct RuntimeLimits
     max_num_time_samples_runtime::Csize_t
     max_num_recorded_samples_in_memory::Csize_t
@@ -143,7 +149,7 @@ struct RuntimeLimits
     storage_available::Cint
 end
 
-struct StorageOptions
+struct CStorageOptions
     sqlite_path::Cstring
     run_id::Cstring
     sqlite_max_bytes::Csize_t
@@ -152,7 +158,7 @@ struct StorageOptions
     log_final_output_field_to_db::Cint
 end
 
-struct StorageResult
+struct CStorageResult
     run_id::NTuple{STORAGE_RUN_ID_MAX, Cchar}
     records_captured::Csize_t
     records_spilled::Csize_t
@@ -187,8 +193,8 @@ struct PropagateOptions
     num_recorded_samples::Csize_t
     output_mode::Cint
     return_records::Cint
-    exec_options::Ptr{ExecutionOptions}
-    storage_options::Ptr{StorageOptions}
+    exec_options::Ptr{CExecutionOptions}
+    storage_options::Ptr{CStorageOptions}
     explicit_record_z::Ptr{Cdouble}
     explicit_record_z_count::Csize_t
     progress_callback::Ptr{Cvoid}
@@ -199,16 +205,106 @@ struct PropagateOutput
     output_records::Ptr{NLOComplex}
     output_record_capacity::Csize_t
     records_written::Ptr{Csize_t}
-    storage_result::Ptr{StorageResult}
+    storage_result::Ptr{CStorageResult}
     output_step_events::Ptr{StepEvent}
     output_step_event_capacity::Csize_t
     step_events_written::Ptr{Csize_t}
     step_events_dropped::Ptr{Csize_t}
 end
 
-struct PreparedValue{T}
-    value::T
-    keepalive::Tuple
+"""
+    PerfProfileSnapshot
+
+Accumulated performance counters, as `perf_profile_read` returns them. The
+fields are those of the C `nlo_perf_profile_snapshot`, in its order.
+"""
+struct PerfProfileSnapshot
+    dispersion_ms::Cdouble
+    nonlinear_ms::Cdouble
+    dispersion_calls::UInt64
+    nonlinear_calls::UInt64
+    gpu_dispatch_count::UInt64
+    gpu_copy_count::UInt64
+    gpu_device_copy_count::UInt64
+    gpu_device_copy_bytes::UInt64
+    gpu_host_transfer_copy_count::UInt64
+    gpu_host_transfer_copy_bytes::UInt64
+    gpu_memory_pass_count::UInt64
+    gpu_memory_pass_bytes::UInt64
+    gpu_upload_count::UInt64
+    gpu_download_count::UInt64
+    gpu_upload_bytes::UInt64
+    gpu_download_bytes::UInt64
+    operator_jit_programs::UInt64
+    operator_jit_fallbacks::UInt64
+end
+
+"""
+    NLOLibError(status, context)
+
+A failure reported by the nlolib library. `status` is the C status as a
+lowercase string (`"invalid_argument"`, `"allocation_failed"`,
+`"not_implemented"`, ...), or `nothing` when the library could not be loaded
+at all. `context` names the call or the missing feature.
+"""
+struct NLOLibError <: Exception
+    status::Union{Nothing, String}
+    context::String
+end
+
+Base.showerror(io::IO, err::NLOLibError) = print(io, "NLOLibError: ", err.context,
+    err.status === nothing ? "" : " (status \"$(err.status)\")")
+
+# -- enum-style values -------------------------------------------------------
+#
+# The public value of every enum-style option or result is a lowercase string;
+# these tables map it to the C integer and back.
+
+const _VECTOR_BACKENDS = Dict("cpu" => VECTOR_BACKEND_CPU, "vulkan" => VECTOR_BACKEND_VULKAN,
+                              "auto" => VECTOR_BACKEND_AUTO)
+const _FFT_BACKENDS = Dict("auto" => FFT_BACKEND_AUTO, "fftw" => FFT_BACKEND_FFTW,
+                           "vkfft" => FFT_BACKEND_VKFFT)
+const _NONLINEAR_MODELS = Dict("expr" => NONLINEAR_MODEL_EXPR, "kerr_raman" => NONLINEAR_MODEL_KERR_RAMAN)
+const _CAP_POLICIES = Dict("stop_writes" => STORAGE_DB_CAP_POLICY_STOP_WRITES,
+                           "fail" => STORAGE_DB_CAP_POLICY_FAIL)
+const _LOG_LEVELS = Dict("error" => NLOLIB_LOG_LEVEL_ERROR, "warn" => NLOLIB_LOG_LEVEL_WARN,
+                         "info" => NLOLIB_LOG_LEVEL_INFO, "debug" => NLOLIB_LOG_LEVEL_DEBUG)
+const _PROGRESS_STREAMS = Dict("stderr" => NLOLIB_PROGRESS_STREAM_STDERR,
+                               "stdout" => NLOLIB_PROGRESS_STREAM_STDOUT,
+                               "both" => NLOLIB_PROGRESS_STREAM_BOTH)
+const _PROGRESS_EVENTS = Dict("accepted" => PROGRESS_EVENT_ACCEPTED, "rejected" => PROGRESS_EVENT_REJECTED,
+                              "finish" => PROGRESS_EVENT_FINISH)
+const _STATUSES = Dict("ok" => NLOLIB_STATUS_OK, "invalid_argument" => NLOLIB_STATUS_INVALID_ARGUMENT,
+                       "allocation_failed" => NLOLIB_STATUS_ALLOCATION_FAILED,
+                       "not_implemented" => NLOLIB_STATUS_NOT_IMPLEMENTED,
+                       "aborted" => NLOLIB_STATUS_ABORTED)
+
+"""
+    _enum_code(table, value, what)
+
+The C integer for the string `value`; an `ArgumentError` naming `what` and the
+accepted strings for anything else.
+"""
+function _enum_code(table::Dict{String, Cint}, value, what::AbstractString)
+    code = value isa AbstractString ? get(table, String(value), nothing) : nothing
+    code === nothing && throw(ArgumentError(
+        "$(what) must be one of " * join(("\"$(k)\"" for k in sort(collect(keys(table)))), ", ") *
+        "; got $(repr(value))"
+    ))
+    return code
+end
+
+"""
+    _enum_name(table, code)
+
+The string for the C integer `code`, or `"unknown"` for a value the table does
+not hold.
+"""
+function _enum_name(table::Dict{String, Cint}, code::Integer)
+    for (name, value) in table
+        value == code && return name
+    end
+    return "unknown"
 end
 
 _zero_chars(::Val{N}) where {N} = ntuple(_ -> Cchar(0), N)
@@ -225,25 +321,6 @@ RuntimeOperatorParams() = RuntimeOperatorParams(
 )
 SimulationConfig() = SimulationConfig(PropagationParams(), Tensor3DDesc(), TimeGrid(), FrequencyGrid(), SpatialGrid())
 VulkanBackendConfig() = VulkanBackendConfig(C_NULL, C_NULL, C_NULL, 0, C_NULL, 0, 0)
-ExecutionOptions() = ExecutionOptions(VECTOR_BACKEND_AUTO, FFT_BACKEND_AUTO, 0.70, 0, 0, VulkanBackendConfig())
 RuntimeLimits() = RuntimeLimits(0, 0, 0, 0, 0, 0)
-StorageOptions() = StorageOptions(C_NULL, C_NULL, 0, 0, STORAGE_DB_CAP_POLICY_STOP_WRITES, 0)
-StorageResult() = StorageResult(_zero_chars(Val(STORAGE_RUN_ID_MAX)), 0, 0, 0, 0, 0)
-StepEvent() = StepEvent(0, 0.0, 0.0, 0.0, 0.0)
-
-default_execution_options(; backend_type::Integer = VECTOR_BACKEND_AUTO,
-                            fft_backend::Integer = FFT_BACKEND_AUTO,
-                            device_heap_fraction::Real = 0.70,
-                            record_ring_target::Integer = 0,
-                            forced_device_budget_bytes::Integer = 0,
-                            vulkan::VulkanBackendConfig = VulkanBackendConfig()) =
-    ExecutionOptions(
-        Cint(backend_type),
-        Cint(fft_backend),
-        Cdouble(device_heap_fraction),
-        Csize_t(record_ring_target),
-        Csize_t(forced_device_budget_bytes),
-        vulkan
-    )
-
-default_storage_options(; kwargs...) = storage_options(; kwargs...)
+CStorageResult() = CStorageResult(_zero_chars(Val(STORAGE_RUN_ID_MAX)), 0, 0, 0, 0, 0)
+PerfProfileSnapshot() = PerfProfileSnapshot(0.0, 0.0, ntuple(_ -> UInt64(0), 16)...)

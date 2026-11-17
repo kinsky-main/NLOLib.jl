@@ -36,7 +36,8 @@ export nth_latest_run_group
 export resolve_replot_group
 export storage_kwargs
 export save_case!
-export save_case_from_solver_meta!
+export save_case_from_result!
+export step_history_dict
 export load_case
 export load_step_history
 export save_step_history!

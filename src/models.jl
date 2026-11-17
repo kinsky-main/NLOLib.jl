@@ -1,30 +1,12 @@
 """
-    RuntimeOperators(; linear_factor_fn, linear_fn, potential_fn, dispersion_factor_fn, dispersion_fn, nonlinear_fn, ...)
+    PulseSpec(; samples, delta_time, ...)
 
-Runtime operators for `prepare_sim_config`. Each operator is a Julia function of
-its context's symbols, traced once at setup into the compiled operator VM; see
-`NLOLib.runtime_context_symbols` for the symbols each slot accepts.
-`dispersion_factor_fn` / `dispersion_fn` are aliases of `linear_factor_fn` /
-`linear_fn` that also accept `w`. `constant_bindings` optionally maps names to
-values that should each occupy a runtime constant slot.
+The input field and its grids. `samples` is the flat field; a tensor run sets
+`tensor_nt`, `tensor_nx` and `tensor_ny`, with `t` fastest, then `y`, then
+`x`. Unset grids are derived: `pulse_period` is `delta_time` times the number
+of time samples and `frequency_grid` the matching FFT-ordered angular
+frequencies.
 """
-Base.@kwdef struct RuntimeOperators
-    linear_factor_fn::Any = nothing
-    linear_fn::Any = nothing
-    potential_fn::Any = nothing
-    dispersion_factor_fn::Any = nothing
-    dispersion_fn::Any = nothing
-    nonlinear_fn::Any = nothing
-    nonlinear_model::Int = Int(NONLINEAR_MODEL_EXPR)
-    nonlinear_gamma::Float64 = 0.0
-    raman_fraction::Float64 = 0.0
-    raman_tau1::Float64 = 0.0122
-    raman_tau2::Float64 = 0.0320
-    shock_omega0::Float64 = 0.0
-    raman_response_time::Any = nothing
-    constant_bindings::Union{Nothing, Dict{String, Float64}} = nothing
-end
-
 Base.@kwdef mutable struct PulseSpec
     samples::Vector{ComplexF64}
     delta_time::Float64
@@ -33,26 +15,86 @@ Base.@kwdef mutable struct PulseSpec
     tensor_nt::Union{Nothing, Int} = nothing
     tensor_nx::Union{Nothing, Int} = nothing
     tensor_ny::Union{Nothing, Int} = nothing
-    tensor_layout::Int = Int(TENSOR_LAYOUT_XYT_T_FAST)
     delta_x::Float64 = 1.0
     delta_y::Float64 = 1.0
     spatial_frequency_grid::Union{Nothing, Vector{ComplexF64}} = nothing
     potential_grid::Union{Nothing, Vector{ComplexF64}} = nothing
+    wt_axis::Union{Nothing, Vector{ComplexF64}} = nothing
+    kx_axis::Union{Nothing, Vector{ComplexF64}} = nothing
+    ky_axis::Union{Nothing, Vector{ComplexF64}} = nothing
 end
 
 """
-    OperatorSpec(; fn, params = nothing)
+    ExecutionOptions(; backend_type = "auto", fft_backend = "auto", ...)
 
-A high-level operator: `fn` is a Julia function of the context's symbols and
-`params` an optional `name => value` mapping bound as runtime constants.
+Where and how a run executes. `backend_type` is `"cpu"`, `"vulkan"` or
+`"auto"`; `fft_backend` is `"auto"`, `"fftw"` or `"vkfft"`. The other fields
+are the C `execution_options` resource controls of the same names.
 """
-Base.@kwdef struct OperatorSpec
-    fn::Any = nothing
-    params::Any = nothing
+Base.@kwdef struct ExecutionOptions
+    backend_type::String = "auto"
+    fft_backend::String = "auto"
+    device_heap_fraction::Float64 = 0.70
+    record_ring_target::Int = 0
+    forced_device_budget_bytes::Int = 0
 end
 
+"""
+    StorageOptions(; sqlite_path, run_id = nothing, ...)
+
+Write the records to the SQLite database at `sqlite_path`. `run_id` names the
+run in the database (at most 63 characters). `cap_policy` says what happens
+when the database reaches `sqlite_max_bytes`: `"stop_writes"` stops writing
+and lets the run continue, `"fail"` makes the run fail. The other fields are
+the C `storage_options` fields of the same names.
+"""
+Base.@kwdef struct StorageOptions
+    sqlite_path::String
+    run_id::Union{Nothing, String} = nothing
+    sqlite_max_bytes::Int = 0
+    chunk_records::Int = 0
+    cap_policy::String = "stop_writes"
+    log_final_output_field_to_db::Bool = false
+end
+
+"""
+    StepHistory
+
+The accepted steps of a run with `capture_step_history = true`: one entry per
+step in each vector. `dropped` counts steps that did not fit in `capacity`.
+"""
+struct StepHistory
+    step_index::Vector{Int}
+    z::Vector{Float64}
+    step_size::Vector{Float64}
+    next_step_size::Vector{Float64}
+    error::Vector{Float64}
+    dropped::Int
+    capacity::Int
+end
+
+"""
+    StorageResult
+
+What a run with `storage` wrote to its database.
+"""
+struct StorageResult
+    run_id::String
+    records_captured::Int
+    records_spilled::Int
+    chunks_written::Int
+    db_size_bytes::Int
+    truncated::Bool
+end
+
+"""
+    ProgressInfo
+
+One progress event, as `progress_callback` receives it. `event_type` is
+`"accepted"`, `"rejected"` or `"finish"`.
+"""
 struct ProgressInfo
-    event_type::Int
+    event_type::String
     step_index::Int
     reject_attempt::Int
     z::Float64
@@ -65,28 +107,34 @@ struct ProgressInfo
     eta_seconds::Float64
 end
 
+"""
+    PropagationResult
+
+The result of `propagate`. `records` is samples x records, `z_axis` the
+position of each record and `final` the last record (empty when
+`return_records = false`). `step_history` is set only with
+`capture_step_history = true` and `storage_result` only with `storage`.
+`meta` holds `"preset"`, `"records_requested"`, `"records_written"`,
+`"backend_requested"`, `"coupled"` and `"status"`.
+"""
 struct PropagationResult
     records::Matrix{ComplexF64}
     z_axis::Vector{Float64}
     final::AbstractVector{ComplexF64}
+    step_history::Union{Nothing, StepHistory}
+    storage_result::Union{Nothing, StorageResult}
     meta::Dict{String, Any}
 end
 
-struct PropagateResult
-    records::Matrix{ComplexF64}
-    z_axis::Vector{Float64}
-    final::AbstractVector{ComplexF64}
-    meta::Dict{String, Any}
-    status::Int
-    message::String
-    t_events::Vector{Vector{Float64}}
-    y_events::Vector{Matrix{ComplexF64}}
-    sol::Any
-end
+"""
+    PropagationAbortedError(result)
 
+Thrown when `progress_callback` returned `false`. `result` holds the records
+written before the abort.
+"""
 struct PropagationAbortedError <: Exception
     result::PropagationResult
 end
 
 Base.showerror(io::IO, err::PropagationAbortedError) =
-    print(io, "nlolib_propagate aborted by progress callback")
+    print(io, "PropagationAbortedError: propagate aborted by progress callback")

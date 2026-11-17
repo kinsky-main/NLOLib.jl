@@ -253,7 +253,7 @@ function main(argv = ARGS)
     args = parse_example_args("high_order_grin_soliton", "High-order GRIN-guided nonlinear tensor propagation.", argv)
     activate_example_theme!()
     NLOLib.set_progress_options(enabled = true, milestone_percent = 2, emit_on_step_adjust = true)
-    NLOLib.set_log_level(NLOLIB_LOG_LEVEL_INFO)
+    NLOLib.set_log_level("info")
     db = ExampleRunDB(args[:db_path])
     example_name = "high_order_grin_soliton_rk4ip"
     nonlinear_case_key = "nonlinear"
@@ -347,7 +347,7 @@ function main(argv = ARGS)
         linear = (A, wt, kx, ky) -> im * ((0.5 * beta2) * wt^2 + beta_t * (kx^2 + ky^2))
         nonlinear_full = (A, I, V) -> im * A * (gamma_nonlinear * I + V)
         nonlinear_linear = (A, I, V) -> im * A * V
-        exec = default_execution_options(backend_type = VECTOR_BACKEND_AUTO, fft_backend = FFT_BACKEND_AUTO)
+        exec = ExecutionOptions(backend_type = "auto", fft_backend = "auto")
         storage_nonlinear = storage_kwargs(db; example_name = example_name, run_group = run_group, case_key = nonlinear_case_key, chunk_records = 4)
         storage_linear = storage_kwargs(db; example_name = example_name, run_group = run_group, case_key = linear_case_key, chunk_records = 4)
 
@@ -355,31 +355,27 @@ function main(argv = ARGS)
             pulse,
             linear,
             nonlinear_full;
-            t_span = (0.0, z_final),
-            t_eval = collect(range(0.0, z_final, length = num_records)),
-            first_step = 5e-3,
-            max_step = 2e-1,
-            min_step = 1e-5,
-            rtol = 1e-6,
+            propagation_distance = z_final,
+            record_z = collect(range(0.0, z_final, length = num_records)),
+            starting_step_size = 5e-3,
+            max_step_size = 2e-1,
+            min_step_size = 1e-5,
+            error_tolerance = 1e-6,
             exec_options = exec,
-            sqlite_path = storage_nonlinear.sqlite_path,
-            run_id = storage_nonlinear.run_id,
-            chunk_records = storage_nonlinear.chunk_records,
+            storage = StorageOptions(; storage_nonlinear...),
         )
         result_linear = NLOLib.propagate(
             pulse,
             linear,
             nonlinear_linear;
-            t_span = (0.0, z_final),
-            t_eval = collect(range(0.0, z_final, length = num_records)),
-            first_step = 5e-3,
-            max_step = 2e-1,
-            min_step = 1e-5,
-            rtol = 1e-6,
+            propagation_distance = z_final,
+            record_z = collect(range(0.0, z_final, length = num_records)),
+            starting_step_size = 5e-3,
+            max_step_size = 2e-1,
+            min_step_size = 1e-5,
+            error_tolerance = 1e-6,
             exec_options = exec,
-            sqlite_path = storage_linear.sqlite_path,
-            run_id = storage_linear.run_id,
-            chunk_records = storage_linear.chunk_records,
+            storage = StorageOptions(; storage_linear...),
         )
 
         z_axis = result_nonlinear.z_axis
@@ -401,8 +397,8 @@ function main(argv = ARGS)
             "grin_strength" => grin_strength,
             "gamma_nonlinear" => gamma_nonlinear,
         )
-        save_case_from_solver_meta!(db; example_name = example_name, run_group = run_group, case_key = nonlinear_case_key, solver_meta = result_nonlinear.meta, meta = meta)
-        save_case_from_solver_meta!(db; example_name = example_name, run_group = run_group, case_key = linear_case_key, solver_meta = result_linear.meta, meta = meta)
+        save_case_from_result!(db; example_name = example_name, run_group = run_group, case_key = nonlinear_case_key, result = result_nonlinear, meta = meta)
+        save_case_from_result!(db; example_name = example_name, run_group = run_group, case_key = linear_case_key, result = result_linear, meta = meta)
     end
 
     nonlinear_xy = time_integrated_xy_records(nonlinear_records)
