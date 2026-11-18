@@ -125,6 +125,58 @@ operator program to a GPU kernel or fell back to the interpreter, and they
 accumulate even while profiling is off; see
 [GPU backend behaviour](../../docs/gpu_backend.md) for what the counters mean.
 
+## Upgrading from 1.x
+
+2.0.0 moves the package to the API shared with the Python and MATLAB
+bindings and breaks 1.x code.
+
+- One exported entry point, `propagate(pulse, linear_operator,
+  nonlinear_operator; ...)`. Both operators are required and must be Julia
+  functions; string operators and `OperatorSpec` are gone.
+- No `NLolib` client struct: every `f(::NLolib, ...)` method is now a plain
+  function, and `load(path)` selects a library.
+- Every option is a named keyword, so a misspelled one is a `MethodError`.
+  `t_span`, `first_step`, `max_step`, `min_step`, `rtol`, `dense_output` and
+  `events` are removed.
+- Enum-style values are lowercase strings (`backend_type = "cpu"`,
+  `set_log_level("warn")`, `meta["status"] == "ok"`). The integer constants
+  (`VECTOR_BACKEND_*`, `FFT_BACKEND_*`, `NLOLIB_STATUS_*`, ...) and `NT_MAX`
+  are no longer exported; `query_runtime_limits` replaces `NT_MAX`.
+- Records: `records=`/`num_recorded_samples=` become `num_records`, and
+  `t_eval`/`explicit_record_z` become `record_z`; `output`/`output_mode` are
+  removed. See "Which records come back" in the core's binding vocabulary.
+- `propagate!`, `propagate(config, input)`, `propagate(sim, phys, input)`,
+  `prepare_sim_config` and the C-layout structs are private.
+
+| 1.x | 2.0.0 |
+|---|---|
+| `linear_factor_fn`, `nonlinear_fn`, `potential_fn`, `linear_fn` | `linear_operator`, `nonlinear_operator`, `potential_operator`, `linear_step_operator` |
+| `dispersion_factor_fn`, `dispersion_fn` | removed; the binding picks the C context by run type |
+| `auto_capture_constants`, raw `constants` | removed; capture is always on, `constant_bindings` names values |
+| six storage keywords | `storage = StorageOptions(...)` |
+| `default_execution_options(...)` | `ExecutionOptions(; ...)` |
+| `storage_options`, `default_storage_options`, `physics_config`, `PreparedValue`, `wrap_records`, `final_record` | private |
+| `PropagateResult` | `PropagationResult`; `step_history` and `storage_result` are fields, not `meta` keys |
+| `query_runtime_limits(config, ...)` | `query_runtime_limits(; pulse, exec_options)` |
+| `tensor_record_view(records, index, nt, nx, ny)` | `tensor_record_view(record, nt, nx, ny)` |
+| `set_log_file(path, append)` | `set_log_file(path; append = false)` |
+| `set_progress_stream(; stream_mode)` | `set_progress_stream(stream_mode)` |
+| `error(...)` on a status failure | `NLOLibError` with a `status` string |
+| `NLOComplex`, `SimulationConfig`, `PhysicsConfig`, `Tensor3DDesc`, the other C structs | private |
+| (new) | `perf_profile_*`, `PerfProfileSnapshot`, `StepHistory`, `loaded_library_path` |
+
+Behaviour changes:
+
+- A tensor run with an `nx*ny` `potential_grid` is now broadcast along `t`.
+  1.x tiled the grid across the volume instead, so such runs were wrong.
+- The number of records a run may keep in memory now follows the host's (and
+  device's) available memory and the run's grid instead of a fixed count;
+  `query_runtime_limits(pulse = ...)` reports it for a given pulse.
+- A single `record_z` position returns the field at that position, with
+  `z_axis == [p]`, not the field at `propagation_distance`.
+- `result.final` is the last returned record, which is the field at
+  `propagation_distance` only when the records reach it.
+
 ## Related Reference
 
 - @ref julia_binding
