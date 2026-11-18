@@ -83,6 +83,12 @@ the same symbol (such as `w` and `wt`), or more parameters than symbols is an
 `"records_requested"`, `"records_written"`, `"backend_requested"`,
 `"coupled"` and `"status"`.
 
+`final` is the last returned record, `records[:, end]`, not a separate
+snapshot of the field at `propagation_distance`. With `num_records` the last
+record is at `propagation_distance`, so the two agree; with a `record_z` whose
+last position is earlier, `final` is the field at that position. A single
+`record_z` position returns the field at exactly that position.
+
 A bad pulse, operator or option value is an `ArgumentError`, including an
 enum string such as `backend_type = "gpu"`; an unknown option is Julia's own
 `MethodError`. A library failure is an `NLOLibError` whose `status` is the C
