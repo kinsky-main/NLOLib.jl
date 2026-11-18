@@ -98,7 +98,8 @@ julia --project=examples examples/quickstart.jl
 ## Documentation
 
 - [Full documentation and API reference](https://kinsky-main.github.io/nlo-rk4ip-code/)
-- [Binding guide](docs/guide.md)
+- [Binding guide](docs/guide.md), including
+  [upgrading from 1.x](docs/guide.md#upgrading-from-1x) (2.0.0 breaks 1.x code)
 - [Working on the package itself](docs/development.md) and
   [releasing](docs/release.md)
 
