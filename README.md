@@ -1,5 +1,10 @@
 # NonlinearOptics.jl
 
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://kinsky-main.github.io/NonlinearOptics.jl/stable/)
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://kinsky-main.github.io/NonlinearOptics.jl/dev/)
+[![CI](https://github.com/kinsky-main/NonlinearOptics.jl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kinsky-main/NonlinearOptics.jl/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/kinsky-main/NonlinearOptics.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/kinsky-main/NonlinearOptics.jl)
+
 Julia package for the nlolib nonlinear-optics runtime: a split-step (RK4IP)
 propagator for pulses and beams in nonlinear media, with a CPU backend and an
 optional Vulkan GPU backend.
@@ -97,9 +102,11 @@ julia --project=examples examples/quickstart.jl
 
 ## Documentation
 
-- [Full documentation and API reference](https://kinsky-main.github.io/nlo-rk4ip-code/)
-- [Binding guide](docs/guide.md), including
-  [upgrading from 1.x](docs/guide.md#upgrading-from-1x) (2.0.0 breaks 1.x code)
+- [Documentation and API reference](https://kinsky-main.github.io/NonlinearOptics.jl/stable/)
+  ([development version](https://kinsky-main.github.io/NonlinearOptics.jl/dev/)), built from [`docs/src/`](docs/src)
+- [Binding guide](docs/src/guide.md), including
+  [upgrading from 1.x](docs/src/guide.md#upgrading-from-1x) (2.0.0 breaks 1.x code)
+- [Core library documentation](https://kinsky-main.github.io/nlo-rk4ip-code/)
 - [Working on the package itself](docs/development.md) and
   [releasing](docs/release.md)
 

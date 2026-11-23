@@ -1,0 +1,9 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+NonlinearOptics = "d2ffef07-4f64-4ed3-a8bf-7f5f9d6a8207"
+
+[sources]
+NonlinearOptics = {path = ".."}
+
+[compat]
+Documenter = "1"
