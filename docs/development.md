@@ -42,12 +42,22 @@ a self-contained package, with the library, to `build/julia_package`:
 ```julia
 using Pkg
 Pkg.activate("build/julia_package")
+Pkg.instantiate()
 using NonlinearOptics
-NonlinearOptics.load()
+NonlinearOptics.load("build/julia_package/lib/libnlolib.so")
 ```
 
-To run this checkout directly against a built library, set `NLOLIB_LIBRARY` to
-its path.
+`load()` opens `nlolib_jll`'s library and `load(path)` the given file. To run
+this checkout, or anything else, against a built library by default, set the
+`libnlolib_path` preference of `nlolib_jll` and restart Julia:
+
+```julia
+using Preferences, NonlinearOptics
+set_preferences!(NonlinearOptics.nlolib_jll, "libnlolib_path" => "/path/to/libnlolib.so")
+```
+
+The CTest cases pass the library they just built to `load(path)`, so they
+ignore both `nlolib_jll`'s library and the preference.
 
 ## The core pin
 

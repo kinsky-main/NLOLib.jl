@@ -16,9 +16,22 @@ loader (`libvulkan.so.1`) must be present because it is a plain shared-library
 dependency; on Windows it is delay-loaded and optional. Without a Vulkan driver
 the CPU backend runs unchanged.
 
-`load()` resolves the library from `ENV["NLOLIB_LIBRARY"]`, then the installed
-artifact, then a build tree; `load(path)` uses that file only. Release and
-registration details are in [release.md](release.md).
+`load()` opens the library that `nlolib_jll` provides, and `load(path)` opens
+that file instead. Release and registration details are in
+[release.md](release.md).
+
+To use a library of your own — a local build, or a platform `nlolib_jll` has no
+build for — set the `libnlolib_path` preference of `nlolib_jll`. It is written
+to the active project's `LocalPreferences.toml` and read when `nlolib_jll`
+precompiles, so restart Julia after setting it:
+
+```julia
+using Preferences, NonlinearOptics
+set_preferences!(NonlinearOptics.nlolib_jll, "libnlolib_path" => "/path/to/libnlolib.so")
+```
+
+`delete_preferences!(NonlinearOptics.nlolib_jll, "libnlolib_path")` goes back to
+the packaged library.
 
 ## Minimal Math-to-API Example
 
@@ -111,9 +124,13 @@ Then in Julia:
 ```julia
 using Pkg
 Pkg.activate("build/julia_package")
+Pkg.instantiate()
 using NonlinearOptics
-NonlinearOptics.load()
+NonlinearOptics.load("build/julia_package/lib/libnlolib.so")
 ```
+
+`load()` without a path would open `nlolib_jll`'s library; set the
+`libnlolib_path` preference (see Install) to make the build the default.
 
 ## Perf-Profile Counters
 

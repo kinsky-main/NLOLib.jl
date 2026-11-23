@@ -11,9 +11,17 @@ end
 zero_linear(A, w) = 0.0
 zero_nonlinear(A, I) = 0.0
 
+const JLL = NonlinearOptics.nlolib_jll
+
 function runtime_functions_case()
-    load()
-    @test !isempty(loaded_library_path())
+    # ctest passes the library it just built; Pkg.test uses nlolib_jll's.
+    if isempty(ARGS)
+        load()
+        @test loaded_library_path() == JLL.libnlolib_path
+    else
+        load(ARGS[1])
+        @test loaded_library_path() == normpath(ARGS[1])
+    end
     @test storage_is_available() isa Bool
 
     limits = query_runtime_limits()
@@ -60,6 +68,41 @@ function runtime_functions_case()
     loaded = loaded_library_path()
     @test_throws NLOLibError load(joinpath(mktempdir(), "missing-libnlolib.so"))
     @test loaded_library_path() == loaded
+
+    # load(path) switches to another file, and back.
+    copied = joinpath(mktempdir(), basename(loaded))
+    cp(loaded, copied)
+    load(copied)
+    @test loaded_library_path() == copied
+    @test query_runtime_limits() isa RuntimeLimits
+    load(loaded)
+    @test loaded_library_path() == loaded
+
+    # Without a build for the platform, load() names the preference to set.
+    err = NonlinearOptics._missing_library_error()
+    @test err isa NLOLibError
+    @test err.status === nothing
+    @test occursin("set_preferences!(NonlinearOptics.nlolib_jll, \"libnlolib_path\" =>", err.context)
+    @test occursin("load(path)", err.context)
+end
+
+# The libnlolib_path preference of nlolib_jll replaces the library load() opens.
+# It is set in a stacked environment of a child process, so the depot and this
+# project are left alone.
+function preference_case()
+    JLL.is_available() || return
+    library = joinpath(mktempdir(), basename(JLL.libnlolib_path))
+    cp(JLL.libnlolib_path, library)
+    prefs_env = mktempdir()
+    write(joinpath(prefs_env, "Project.toml"),
+          "[deps]\nnlolib_jll = \"$(Base.PkgId(JLL).uuid)\"\n")
+    write(joinpath(prefs_env, "LocalPreferences.toml"),
+          "[nlolib_jll]\nlibnlolib_path = $(repr(library))\n")
+    sep = Sys.iswindows() ? ";" : ":"
+    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$(Base.active_project())
+           -e "using NonlinearOptics; load(); print(loaded_library_path())"`
+    load_path = join(unique(["@", prefs_env, LOAD_PATH...]), sep)
+    @test readchomp(addenv(cmd, "JULIA_LOAD_PATH" => load_path)) == library
 end
 
 function records_case()
@@ -310,6 +353,7 @@ end
 @testset "NonlinearOptics Julia wrapper" begin
     @test sizeof(NonlinearOptics.NLOComplex) == 16
     runtime_functions_case()
+    preference_case()
     records_case()
     physics_case()
     tensor_case()

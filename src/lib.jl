@@ -1,25 +1,41 @@
 const _LIB_HANDLE = Ref{Ptr{Cvoid}}(C_NULL)
 const _LIB_PATH = Ref{String}("")
 
-function _candidate_library_paths(path::Union{Nothing, AbstractString})
-    # An explicit path is the only candidate, so a wrong one fails rather than
-    # quietly loading a different library.
-    path === nothing || return filter(isfile, [normpath(String(path))])
+const _PREFERENCE_HINT =
+    "To use a library of your own, set the nlolib_jll preference and restart Julia:\n" *
+    "    using Preferences, NonlinearOptics\n" *
+    "    set_preferences!(NonlinearOptics.nlolib_jll, \"libnlolib_path\" => \"/path/to/libnlolib.$(Libdl.dlext)\")\n" *
+    "or pass the file to load(path)."
 
-    candidates = String[]
-    env_path = get(ENV, "NLOLIB_LIBRARY", "")
-    isempty(env_path) || push!(candidates, normpath(env_path))
-    nlolib_jll.is_available() && push!(candidates, nlolib_jll.libnlolib_path)
-    return unique(filter(isfile, candidates))
+_missing_library_error() = NLOLibError(nothing,
+    "nlolib_jll has no nlolib build for $(Sys.MACHINE). " * _PREFERENCE_HINT)
+
+# The library `load()` opens: `nlolib_jll.libnlolib_path`, which JLLWrappers
+# takes from the `libnlolib_path` preference when it is set. A platform without
+# a build never reads the preference, so it is read here instead.
+function _jll_library_path()
+    nlolib_jll.is_available() && return nlolib_jll.libnlolib_path
+    return Preferences.load_preference(nlolib_jll, "libnlolib_path", nothing)
 end
 
 """
     load(path = nothing)
 
-Load the nlolib shared library: from `path` when given, and only from there;
-otherwise from `NLOLIB_LIBRARY` when set, then from `nlolib_jll`.
-Every other function loads the library on first use, so calling `load` is only
-needed to pick a specific file. Throws `NLOLibError` when no library loads.
+Load the nlolib shared library: the file at `path` when given, otherwise the
+library of `nlolib_jll`. Every other function loads the library on first use,
+so calling `load` is only needed to pick a specific file.
+
+To use a local build everywhere, including on first use, set the
+`libnlolib_path` preference of `nlolib_jll` (read when `nlolib_jll`
+precompiles, so restart Julia after changing it):
+
+```julia
+using Preferences, NonlinearOptics
+set_preferences!(NonlinearOptics.nlolib_jll, "libnlolib_path" => "/path/to/libnlolib.so")
+```
+
+Throws `NLOLibError` when the library cannot be loaded; a failed `load(path)`
+keeps the library already loaded.
 """
 function load(path = nothing)
     path === nothing || path isa AbstractString ||
@@ -29,28 +45,23 @@ function load(path = nothing)
         return nothing
     end
 
-    candidates = _candidate_library_paths(path)
-    isempty(candidates) && throw(NLOLibError(nothing, path !== nothing ?
-        "no nlolib shared library at $(path)" :
-        "cannot locate the nlolib shared library: nlolib_jll has no build for " *
-        "$(Sys.MACHINE); set NLOLIB_LIBRARY or pass a path to load()"))
-
-    if current != C_NULL
-        Libdl.dlclose(current)
-        _LIB_HANDLE[] = C_NULL
-        _LIB_PATH[] = ""
+    if path === nothing
+        candidate = _jll_library_path()
+        candidate === nothing && throw(_missing_library_error())
+    else
+        candidate = normpath(String(path))
+        isfile(candidate) || throw(NLOLibError(nothing, "no nlolib shared library at $(candidate)"))
     end
 
-    for candidate in candidates
-        handle = Libdl.dlopen_e(candidate)
-        if handle != C_NULL
-            _LIB_HANDLE[] = handle
-            _LIB_PATH[] = candidate
-            return nothing
-        end
-    end
+    handle = Libdl.dlopen_e(candidate)
+    handle == C_NULL && throw(NLOLibError(nothing,
+        "failed to load the nlolib shared library from $(candidate)" *
+        (path === nothing ? ". " * _PREFERENCE_HINT : "")))
 
-    throw(NLOLibError(nothing, "failed to load the nlolib shared library from: " * join(candidates, ", ")))
+    current == C_NULL || Libdl.dlclose(current)
+    _LIB_HANDLE[] = handle
+    _LIB_PATH[] = candidate
+    return nothing
 end
 
 """

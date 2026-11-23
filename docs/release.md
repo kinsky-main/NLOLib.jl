@@ -36,24 +36,20 @@ A built checkout keeps working with no artifact at all; see
 ```julia
 using Pkg
 Pkg.activate("build/julia_package")
+Pkg.instantiate()
 using NonlinearOptics
-NonlinearOptics.load()
+NonlinearOptics.load("build/julia_package/lib/libnlolib.so")
 ```
 
-`src/lib.jl` resolves the library in this order:
+`src/lib.jl` opens one library: the path passed to `NonlinearOptics.load(path)`,
+otherwise `nlolib_jll.libnlolib_path`. To make a local build the default, set
+the `libnlolib_path` preference of `nlolib_jll`; JLLWrappers reads it when
+`nlolib_jll` precompiles, so restart Julia after changing it:
 
-1. an explicit path passed to `NonlinearOptics.load(path)`
-2. `ENV["NLOLIB_LIBRARY"]`
-3. the installed `nlolib` artifact, when `Artifacts.toml` binds one for this
-   platform and it is present in the depot
-4. the development paths — `<package>/lib`, and, when this repository is the
-   `julia/` submodule of the core repository, `../python[/Debug|/Release]` and
-   `../build/julia_package/lib`
-
-`julia_stage` does not copy `Artifacts.toml` into the staged package, so the
-staged tree always loads the library it was just built with. If you work
-directly out of a checkout that also has the artifact installed, set
-`NLOLIB_LIBRARY` to pick the build you mean.
+```julia
+using Preferences, NonlinearOptics
+set_preferences!(NonlinearOptics.nlolib_jll, "libnlolib_path" => "/path/to/libnlolib.so")
+```
 
 ## Releasing
 
