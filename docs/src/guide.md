@@ -18,7 +18,7 @@ the CPU backend runs unchanged.
 
 `load()` opens the library that `nlolib_jll` provides, and `load(path)` opens
 that file instead. Release and registration details are in
-[release.md](release.md).
+[release.md](https://github.com/kinsky-main/NonlinearOptics.jl/blob/main/docs/release.md).
 
 To use a library of your own — a local build, or a platform `nlolib_jll` has no
 build for — set the `libnlolib_path` preference of `nlolib_jll`. It is written
@@ -37,11 +37,11 @@ the packaged library.
 
 This example uses the quadratic GLSE mapping
 
-\f[
+```math
 D(\omega)=i\left(\frac{\beta_2}{2}\right)\omega^2-\frac{\alpha}{2},
 \qquad
 N(A)=i\gamma A|A|^2
-\f]
+```
 
 so the operators are written as Julia functions of the runtime symbols:
 
@@ -113,7 +113,7 @@ holds what was recorded.
 ## Build-Tree Usage
 
 After a core build with this binding checked out (see
-[development.md](development.md)):
+[development.md](https://github.com/kinsky-main/NonlinearOptics.jl/blob/main/docs/development.md)):
 
 ```bash
 cmake --build build --config Release --target julia_stage
@@ -140,7 +140,7 @@ counters, `perf_profile_read()` returns them as a `PerfProfileSnapshot` and
 `operator_jit_fallbacks` report whether the Vulkan backend compiled each
 operator program to a GPU kernel or fell back to the interpreter, and they
 accumulate even while profiling is off; see
-[GPU backend behaviour](../../docs/gpu_backend.md) for what the counters mean.
+[GPU backend behaviour](https://github.com/kinsky-main/nlo-rk4ip-code/blob/main/docs/gpu_backend.md) for what the counters mean.
 
 ## Upgrading from 1.x
 
@@ -196,4 +196,4 @@ Behaviour changes:
 
 ## Related Reference
 
-- @ref julia_binding
+- [API reference](api.md)

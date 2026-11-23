@@ -8,3 +8,5 @@ output/
 *.so
 *.dll
 *.dylib
+/docs/build/
+/docs/Manifest.toml
