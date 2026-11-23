@@ -57,118 +57,63 @@ directly out of a checkout that also has the artifact installed, set
 
 ## Releasing
 
-### 1. Tag
+A release is a registration. Registrator records the version in the General
+registry, and TagBot then creates the tag and the GitHub release on the commit
+that was registered. **Nobody pushes version tags by hand**: a hand-pushed tag
+can point at a different commit than the registered one.
+
+### 1. Prepare the version
 
 The package version lives in `Project.toml` and is independent of the core
-library version; `CORE_REF` names the core commit the artifacts are built from.
-Nothing advances the version automatically. The tag is the bare version with no
-`v` prefix, and the workflow's `verify` job fails if the tag and `Project.toml`
-disagree: the registry records the version from `Project.toml` while the
-artifact download URLs are built from the tag.
+library version; `CORE_REF` names the core commit the release is built
+against. Nothing advances the version automatically.
 
-In a pull request, set the new version in `Project.toml` and, if the release
-needs a newer core, the new commit SHA in `CORE_REF`. Merge it, then tag the
-merge commit:
+In a pull request, set the new version in `Project.toml`, add its entry to
+[`CHANGELOG.md`](../CHANGELOG.md), and, if the release needs a newer core, move
+`CORE_REF` (and the `nlolib_jll` compat bound when the JLL changes). Merge it.
 
-```bash
-git tag "$(python tools/check_version.py)"
-git push origin "$(python tools/check_version.py)"
-```
-
-The workflow then, per platform (`ubuntu-24.04` and `windows-2025`, pinned):
-builds with `ENABLE_VULKAN_BACKEND=ON ENABLE_VKFFT=ON
-SQLITE_USE_FETCHCONTENT=ON`, stages `julia_stage`, packs the staged `lib/` as
-`nlolib-julia-<version>-<triplet>.tar.gz`, and computes that tarball's
-`git-tree-sha1` and `sha256`. A separate matrix of jobs then installs the
-artifact into a fresh checkout that has no build directory and runs
-`Pkg.test()` against it, so the tests can only pass if the distribution works.
-Finally the tarballs, a `SHA256SUMS`, and a generated `Artifacts.toml` are
-uploaded to the release.
-
-`workflow_dispatch` runs everything except the upload.
-
-### 2. Bind the artifact
-
-An `Artifacts.toml` entry binds a `git-tree-sha1` to a download URL and a
-tarball hash, so **it cannot be written before the tarballs are published**.
-That ordering is unavoidable; what is a choice is who commits the result. This
-repository uses a two-step flow with a human in the middle rather than letting
-the workflow push to `main`:
-
-1. the tagged run publishes `Artifacts.toml` as a release asset and prints it in
-   the job summary;
-2. you reproduce it locally from the published assets and commit it.
-
-```bash
-julia tools/bind_artifacts.jl --version <version> --download \
-    --toml Artifacts.toml \
-    x86_64-linux-gnu x86_64-w64-mingw32
-```
-
-Then diff it against the asset the workflow published; they must be identical.
-Commit `Artifacts.toml` through a normal pull request.
-
-`--download` matters: gzip records a timestamp, so rebuilding a tarball from the
-same tree yields a different `sha256` even though the `git-tree-sha1` is
-unchanged. The hash that has to be recorded is the one of the asset users will
-actually fetch, which is the published file.
-
-The alternative — generating the file in the workflow and committing it back
-from CI — removes this step but gives the release workflow write access to the
-default branch, and the thing it would push is exactly the thing that decides
-what every user downloads. A reviewable commit is worth the extra step.
-
-Two details the script exists to get right:
-
-- The tree hash is the hash of the *unpacked* tarball, which is what `Pkg`
-  recomputes after downloading. `create_artifact` performs that unpack, so
-  computing the hash and installing the artifact are one operation.
-- That hash is **not** platform independent (the executable bit is not
-  represented identically everywhere), so each platform's hash is computed on
-  the platform that consumes it. The build jobs emit single-entry fragments and
-  the `bundle` job only merges them (`--merge`). The test jobs recompute the
-  hash on a different machine and fail if it differs from the published
-  fragment.
-
-### 3. Register in the General registry
-
-Nothing in this repository submits to General; the first registration is
-deliberately manual.
-
-The first version that can be registered is the first release tagged in this
-repository: the artifact URLs in `Artifacts.toml` point at this repository's
-releases, so only a tag pushed here has tarballs to bind.
+### 2. Register
 
 1. Install the [JuliaRegistrator](https://github.com/JuliaRegistries/Registrator)
    GitHub App on `kinsky-main/NonlinearOptics.jl`.
-2. Comment on the commit that added `Artifacts.toml`:
+2. Comment on the merge commit:
 
    ```
    @JuliaRegistrator register
+
+   Release notes:
+
+   <the CHANGELOG.md entry for this version>
    ```
 
-   No `subdir` is needed: the package is at the repository root.
+   No `subdir` is needed: the package is at the repository root. The release
+   notes become the GitHub release text.
 3. Registrator opens a pull request against `JuliaRegistries/General`. Watch its
    AutoMerge checks and respond there.
 
-Later versions repeat steps 1–2 of this guide and then the same comment on the
-new binding commit.
+### 3. Tag (automatic)
 
-TagBot is deliberately **not** installed. It creates `v`-prefixed tags from
-merged registry pull requests, and this repository's release workflow triggers
-on bare version tags that a human pushes; TagBot's tags would either do nothing
-or double-publish.
+[`.github/workflows/TagBot.yml`](../.github/workflows/TagBot.yml) runs when
+JuliaTagBot comments after the registry pull request merges. It tags the
+registered commit `v<version>` (the first release is `v0.1.0`) and creates the
+GitHub release from the Registrator release notes, a link to `CHANGELOG.md`,
+and the merged pull requests and closed issues since the previous release. If it
+did not run, start it from the Actions tab with `workflow_dispatch`.
+
+TagBot pushes the tag with the `DOCUMENTER_KEY` deploy key rather than
+`GITHUB_TOKEN`, so the tag push triggers the documentation deploy. That key is
+also what lets it push a tag on a commit that changes a workflow file, which
+`GITHUB_TOKEN` is not allowed to do.
+
+The bare `1.20.1` and `2.0.0` tags belong to the unregistered `NLOLib` line and
+do not clash with TagBot's `v`-prefixed tags.
 
 #### What AutoMerge will say
 
-- `Project.toml` currently has `[compat]` for `julia`, `Artifacts` and
-  `Libdl`. AutoMerge requires a compat entry for every dependency and an upper
-  bound on each non-stdlib one; there are no non-stdlib dependencies, so this is
-  already sufficient.
+- AutoMerge requires a compat entry for every dependency and an upper bound on
+  each non-stdlib one; `nlolib_jll = "~0.1.0"` is bounded.
 - A new package waits a mandatory three days before it is merged, however
-  clean its checks are. The first registration, `1.20.1`, met every guideline
-  and was scheduled to auto-merge after that wait; the first version does not
-  have to be `0.0.1`, `0.1.0` or `1.0.0`.
+  clean its checks are.
 - A later version must follow the previous registered one: only the next
   patch, minor or major auto-merges. Skipping a version leaves the pull
   request for a General maintainer to merge by hand.
@@ -178,26 +123,16 @@ or double-publish.
   root, which satisfies the license check.
 - AutoMerge installs and imports the package on its own runners. `NonlinearOptics` does
   not open the library at precompile time — `load()` is explicit — so the import
-  succeeds on platforms the artifact does not cover.
+  succeeds on platforms `nlolib_jll` does not cover.
 
 #### Version numbering
 
 The version is frozen between releases and advances only when someone edits
-`Project.toml`. **A registered Julia package depends on that.** The reason is
-step 2: the binding commit records a `git-tree-sha1` and a URL that both name
-the version its tag published. If anything bumped the version as that commit
-landed, the commit would declare one version in `Project.toml` while binding
-the artifact of another, and the next tag would publish a package whose
-artifact URL points at the previous release's assets. `Pkg` would install it
-and fail on a hash mismatch, or worse, succeed with the wrong binary.
-
-A registry version can also never be reused and must increase monotonically.
+`Project.toml`. A registry version can never be reused and must increase
+monotonically.
 
 ## Files
 
-- `.github/workflows/release-julia.yml` — build, test, publish
-- `tools/bind_artifacts.jl` — writes and merges `Artifacts.toml`
-- `tools/check_artifact_load.jl` — fails unless the library loaded from
-  the artifact
-- `Artifacts.toml` — committed per release, generated by the above
-- `CORE_REF` — the core commit the artifacts are built from
+- `.github/workflows/TagBot.yml` — tags and releases registered versions
+- `CHANGELOG.md` — one entry per release
+- `CORE_REF` — the core commit the release is built against

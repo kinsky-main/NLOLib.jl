@@ -1,0 +1,57 @@
+name: TagBot
+
+# Creates the version tag and GitHub release on the commit a registered version
+# points at, once its registry pull request has merged. Nobody pushes version
+# tags by hand. Tags are v-prefixed (v0.1.0). Do not add a `permissions:`
+# block; TagBot needs the token's defaults.
+
+on:
+  issue_comment:
+    types:
+      - created
+  workflow_dispatch:
+    inputs:
+      lookback:
+        default: "3"
+
+jobs:
+  TagBot:
+    if: github.event_name == 'workflow_dispatch' || github.actor == 'JuliaTagBot'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: JuliaRegistries/TagBot@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # A deploy key, so the tag push triggers the docs deploy.
+          ssh: ${{ secrets.DOCUMENTER_KEY }}
+          # The release notes given to Registrator, then a pointer to
+          # CHANGELOG.md, then TagBot's usual pull request and issue lists.
+          changelog: |
+            ## {{ package }} {{ version }}
+
+            {% if yanked %}
+            :warning: This release has been yanked from the registry.
+            {% endif %}
+            {% if previous_release %}
+            [Diff since {{ previous_release }}]({{ compare_url }})
+            {% endif %}
+
+            {% if custom %}
+            {{ custom }}
+            {% endif %}
+
+            See [CHANGELOG.md](https://github.com/kinsky-main/NonlinearOptics.jl/blob/{{ sha }}/CHANGELOG.md).
+
+            {% if pulls %}
+            **Merged pull requests:**
+            {% for pull in pulls %}
+            - {{ pull.title }} (#{{ pull.number }}) (@{{ pull.author.username }})
+            {% endfor %}
+            {% endif %}
+
+            {% if issues %}
+            **Closed issues:**
+            {% for issue in issues %}
+            - {{ issue.title }} (#{{ issue.number }})
+            {% endfor %}
+            {% endif %}
