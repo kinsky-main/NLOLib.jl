@@ -77,8 +77,15 @@ functions `load`, `loaded_library_path`, `query_runtime_limits`,
 `read_log_buffer` / `clear_log_buffer` / `set_progress_*` controls and the
 `perf_profile_*` counters. Each has a docstring.
 
-`load()` resolves the library from `ENV["NLOLIB_LIBRARY"]`, then the installed
-artifact, then a build tree; `load(path)` uses that file only.
+`load()` opens the library that `nlolib_jll` provides; `load(path)` opens that
+file instead. To run everything against a local build, set the `libnlolib_path`
+preference of `nlolib_jll`, which is written to `LocalPreferences.toml` and
+takes effect after restarting Julia:
+
+```julia
+using Preferences, NonlinearOptics
+set_preferences!(NonlinearOptics.nlolib_jll, "libnlolib_path" => "/path/to/libnlolib.so")
+```
 
 ## Examples
 

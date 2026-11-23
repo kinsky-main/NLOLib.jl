@@ -2,6 +2,7 @@ module NonlinearOptics
 
 using nlolib_jll
 using Libdl
+import Preferences
 using Printf
 
 include("types.jl")
