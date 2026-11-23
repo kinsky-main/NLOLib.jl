@@ -1,5 +1,5 @@
 using Test
-using NLOLib
+using NonlinearOptics
 
 const CPU = ExecutionOptions(backend_type = "cpu", fft_backend = "fftw")
 
@@ -295,7 +295,7 @@ function errors_case()
     # C calls go through directly.
     for (code, name) in ((1, "invalid_argument"), (2, "allocation_failed"), (3, "not_implemented"))
         err = try
-            NLOLib._check_status(code, "nlolib_propagate")
+            NonlinearOptics._check_status(code, "nlolib_propagate")
             nothing
         catch exc
             exc
@@ -304,11 +304,11 @@ function errors_case()
         @test err.status == name
         @test err.context == "nlolib_propagate"
     end
-    @test NLOLib._check_status(0, "nlolib_propagate") === nothing
+    @test NonlinearOptics._check_status(0, "nlolib_propagate") === nothing
 end
 
-@testset "NLOLib Julia wrapper" begin
-    @test sizeof(NLOLib.NLOComplex) == 16
+@testset "NonlinearOptics Julia wrapper" begin
+    @test sizeof(NonlinearOptics.NLOComplex) == 16
     runtime_functions_case()
     records_case()
     physics_case()

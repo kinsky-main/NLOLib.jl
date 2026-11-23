@@ -4,10 +4,10 @@
 # operator written as plain functions, and the "balanced" preset. Dispersion
 # alone conserves power, so the initial and final powers agree.
 
-using NLOLibExamples
+using NonlinearOpticsExamples
 pushfirst!(LOAD_PATH, package_root_from(@__FILE__))
 
-using NLOLib
+using NonlinearOptics
 
 # nlolib-example-parameters: begin
 n = 1024

@@ -1,10 +1,10 @@
-using NLOLibExamples
+using NonlinearOpticsExamples
 pushfirst!(LOAD_PATH, package_root_from(@__FILE__))
 
 using CairoMakie
 using FFTW
 using LinearAlgebra
-using NLOLib
+using NonlinearOptics
 
 # nlolib-example-parameters: begin
 nt = 128
@@ -118,8 +118,8 @@ end
 function main(argv = ARGS)
     args = parse_example_args("tensor_dispersion_3d", "Tensor 3D dispersion/diffraction with DB-backed run/replot.", argv)
     activate_example_theme!()
-    NLOLib.set_progress_options(enabled = true, milestone_percent = 2, emit_on_step_adjust = true)
-    NLOLib.set_log_level("info")
+    NonlinearOptics.set_progress_options(enabled = true, milestone_percent = 2, emit_on_step_adjust = true)
+    NonlinearOptics.set_log_level("info")
     db = ExampleRunDB(args[:db_path])
     example_name = "tensor_dispersion_3d"
     case_key = "default"
@@ -153,7 +153,7 @@ function main(argv = ARGS)
         linear = (A, wt, kx, ky) -> im * ((0.5 * beta2) * wt^2 + beta_t * (kx^2 + ky^2))
         exec = ExecutionOptions(backend_type = "auto", fft_backend = "auto")
         storage = storage_kwargs(db; example_name = example_name, run_group = run_group, case_key = case_key, chunk_records = 2)
-        result = NLOLib.propagate(
+        result = NonlinearOptics.propagate(
             pulse,
             linear,
             (A, I) -> 0.0;

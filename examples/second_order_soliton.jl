@@ -1,9 +1,9 @@
-using NLOLibExamples
+using NonlinearOpticsExamples
 pushfirst!(LOAD_PATH, package_root_from(@__FILE__))
 
 using CairoMakie
 using FFTW
-using NLOLib
+using NonlinearOptics
 
 # nlolib-example-parameters: begin
 n = 4096
@@ -125,8 +125,8 @@ end
 function main(argv = ARGS)
     args = parse_example_args("second_order_soliton", "Second-order soliton validation with DB-backed run/replot.", argv)
     activate_example_theme!()
-    NLOLib.set_progress_options(enabled = true, milestone_percent = 2, emit_on_step_adjust = true)
-    NLOLib.set_log_level("info")
+    NonlinearOptics.set_progress_options(enabled = true, milestone_percent = 2, emit_on_step_adjust = true)
+    NonlinearOptics.set_log_level("info")
     db = ExampleRunDB(args[:db_path])
     example_name = "second_order_soliton"
     case_key = "default"
@@ -163,7 +163,7 @@ function main(argv = ARGS)
             run_group = run_group,
             case_key = case_key,
             chunk_records = 8)
-        result = NLOLib.propagate(
+        result = NonlinearOptics.propagate(
             pulse,
             linear,
             nonlinear;

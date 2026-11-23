@@ -1,6 +1,6 @@
-module NLOLib
+module NonlinearOptics
 
-using Artifacts
+using nlolib_jll
 using Libdl
 using Printf
 

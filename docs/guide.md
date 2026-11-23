@@ -1,13 +1,13 @@
 # Julia Binding Guide
 
-The Julia package exposes the native wrapper through the exported `NLOLib`
+The Julia package exposes the native wrapper through the exported `NonlinearOptics`
 module.
 
 ## Install
 
 ```julia
 using Pkg
-Pkg.add("NLOLib")
+Pkg.add("NonlinearOptics")
 ```
 
 The native library and its runtime dependencies arrive as a Julia artifact, so
@@ -33,7 +33,7 @@ N(A)=i\gamma A|A|^2
 so the operators are written as Julia functions of the runtime symbols:
 
 ```julia
-using NLOLib
+using NonlinearOptics
 
 beta2 = -0.02
 alpha = 0.10
@@ -111,8 +111,8 @@ Then in Julia:
 ```julia
 using Pkg
 Pkg.activate("build/julia_package")
-using NLOLib
-NLOLib.load()
+using NonlinearOptics
+NonlinearOptics.load()
 ```
 
 ## Perf-Profile Counters

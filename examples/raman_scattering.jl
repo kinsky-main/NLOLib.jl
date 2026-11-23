@@ -1,9 +1,9 @@
-using NLOLibExamples
+using NonlinearOpticsExamples
 pushfirst!(LOAD_PATH, package_root_from(@__FILE__))
 
 using CairoMakie
 using FFTW
-using NLOLib
+using NonlinearOptics
 
 # nlolib-example-parameters: begin
 n = 4096
@@ -112,8 +112,8 @@ end
 function main(argv = ARGS)
     args = parse_example_args("raman_scattering", "Raman self-frequency-shift validation with DB-backed run/replot.", argv)
     activate_example_theme!()
-    NLOLib.set_progress_options(enabled = true, milestone_percent = 2, emit_on_step_adjust = true)
-    NLOLib.set_log_level("info")
+    NonlinearOptics.set_progress_options(enabled = true, milestone_percent = 2, emit_on_step_adjust = true)
+    NonlinearOptics.set_log_level("info")
     db = ExampleRunDB(args[:db_path])
     example_name = "raman_scattering"
     kerr_case_key = "kerr_only"
@@ -149,7 +149,7 @@ function main(argv = ARGS)
         )
 
         storage_kerr = storage_kwargs(db; example_name = example_name, run_group = run_group, case_key = kerr_case_key, chunk_records = 8)
-        kerr_result = NLOLib.propagate(
+        kerr_result = NonlinearOptics.propagate(
             pulse,
             linear,
             (A, I) -> im * gamma * A * I;
@@ -164,7 +164,7 @@ function main(argv = ARGS)
             meta = Dict("n" => n, "dt" => dt, "beta2" => beta2, "gamma" => gamma, "z_final" => z_final, "pulse_width" => pulse_width))
 
         storage_raman = storage_kwargs(db; example_name = example_name, run_group = run_group, case_key = raman_case_key, chunk_records = 8)
-        raman_result = NLOLib.propagate(
+        raman_result = NonlinearOptics.propagate(
             pulse,
             linear,
             (A, I) -> 0.0;

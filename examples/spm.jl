@@ -4,11 +4,11 @@
 # intensity and gains the phase gamma |A0|^2 z, so every record is checked
 # against A0 exp(i gamma |A0|^2 z).
 
-using NLOLibExamples
+using NonlinearOpticsExamples
 pushfirst!(LOAD_PATH, package_root_from(@__FILE__))
 
 using FFTW
-using NLOLib
+using NonlinearOptics
 
 # nlolib-example-parameters: begin
 n = 1024

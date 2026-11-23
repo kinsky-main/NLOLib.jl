@@ -4,11 +4,11 @@
 # propagates under dispersion and Kerr nonlinearity; the three invariants are
 # computed spectrally from every record and their drifts reported.
 
-using NLOLibExamples
+using NonlinearOpticsExamples
 pushfirst!(LOAD_PATH, package_root_from(@__FILE__))
 
 using FFTW
-using NLOLib
+using NonlinearOptics
 
 # nlolib-example-parameters: begin
 n = 1024

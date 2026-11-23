@@ -1,4 +1,4 @@
-# NLOLib.jl
+# NonlinearOptics.jl
 
 Julia package for the nlolib nonlinear-optics runtime: a split-step (RK4IP)
 propagator for pulses and beams in nonlinear media, with a CPU backend and an
@@ -8,7 +8,7 @@ optional Vulkan GPU backend.
 
 ```julia
 using Pkg
-Pkg.add("NLOLib")
+Pkg.add("NonlinearOptics")
 ```
 
 The native library and its runtime dependencies arrive as a Julia artifact, so
@@ -26,7 +26,7 @@ propagates a second-order soliton (`D(w) = i*(beta2/2)*w^2`,
 input shape:
 
 ```julia
-using NLOLib
+using NonlinearOptics
 
 beta2, gamma = -1.0, 1.0
 nt, dt = 1024, 0.02
@@ -105,7 +105,7 @@ julia --project=examples examples/quickstart.jl
 
 ## Links
 
-- Source and issues: https://github.com/kinsky-main/NLOLib.jl
+- Source and issues: https://github.com/kinsky-main/NonlinearOptics.jl
 - Core C library: https://github.com/kinsky-main/nlo-rk4ip-code
 
 ## License

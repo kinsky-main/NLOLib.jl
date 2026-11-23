@@ -8,7 +8,7 @@ function centered_spatial_grid(num_samples::Integer, delta::Real)
     return (collect(0:Int(num_samples) - 1) .- 0.5 * Float64(num_samples - 1)) .* Float64(delta)
 end
 
-# The NLOLib package root, from an example script or a backend helper, in a
+# The NonlinearOptics package root, from an example script or a backend helper, in a
 # source checkout (<root>/examples) or a staged package (<root>/examples/julia).
 function package_root_from(path::AbstractString)
     candidates = [
@@ -17,11 +17,11 @@ function package_root_from(path::AbstractString)
         normpath(joinpath(dirname(path), "..", "..", "..")),
     ]
     for candidate in candidates
-        if isfile(joinpath(candidate, "Project.toml")) && isfile(joinpath(candidate, "src", "NLOLib.jl"))
+        if isfile(joinpath(candidate, "Project.toml")) && isfile(joinpath(candidate, "src", "NonlinearOptics.jl"))
             return candidate
         end
     end
-    error("unable to locate the NLOLib Julia package root from $path")
+    error("unable to locate the NonlinearOptics Julia package root from $path")
 end
 
 function build_example_parser(example_slug::AbstractString, description::AbstractString)

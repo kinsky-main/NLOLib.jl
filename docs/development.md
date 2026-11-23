@@ -42,8 +42,8 @@ a self-contained package, with the library, to `build/julia_package`:
 ```julia
 using Pkg
 Pkg.activate("build/julia_package")
-using NLOLib
-NLOLib.load()
+using NonlinearOptics
+NonlinearOptics.load()
 ```
 
 To run this checkout directly against a built library, set `NLOLIB_LIBRARY` to

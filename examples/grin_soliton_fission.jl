@@ -15,11 +15,11 @@
 # convention exp(-i w t) the physical offset is w = -wt, so the odd (beta3)
 # term changes sign in the operator.
 
-using NLOLibExamples
+using NonlinearOpticsExamples
 pushfirst!(LOAD_PATH, package_root_from(@__FILE__))
 
 using FFTW
-using NLOLib
+using NonlinearOptics
 
 # nlolib-example-parameters: begin
 lambda0 = 1.55

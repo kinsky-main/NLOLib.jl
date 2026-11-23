@@ -3,11 +3,11 @@
 # The one shared example that sets return_records = false: the records go to
 # the snapshot store in chunks of chunk_records and are counted back from it.
 
-using NLOLibExamples
+using NonlinearOpticsExamples
 pushfirst!(LOAD_PATH, package_root_from(@__FILE__))
 
 using DBInterface
-using NLOLib
+using NonlinearOptics
 using SQLite
 
 # nlolib-example-parameters: begin

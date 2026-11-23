@@ -3,8 +3,8 @@
 
 using Test
 using Printf
-using NLOLib
-using NLOLib: translate_callable, runtime_context_symbols
+using NonlinearOptics
+using NonlinearOptics: translate_callable, runtime_context_symbols
 
 function dispersion_fixture(A, w)
     return im * (0.02 * w^2)

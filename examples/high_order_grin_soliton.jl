@@ -9,12 +9,12 @@
 #
 # The radius, overlap with the launch field and power drift are reported.
 
-using NLOLibExamples
+using NonlinearOpticsExamples
 pushfirst!(LOAD_PATH, package_root_from(@__FILE__))
 
 using FFTW
 using LinearAlgebra
-using NLOLib
+using NonlinearOptics
 using Random
 
 # nlolib-example-parameters: begin

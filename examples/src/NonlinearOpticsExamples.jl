@@ -1,4 +1,4 @@
-module NLOLibExamples
+module NonlinearOpticsExamples
 
 using PrecompileTools: @setup_workload, @compile_workload
 

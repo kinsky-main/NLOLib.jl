@@ -915,7 +915,7 @@ git-tree-sha1 = "cac9cc5499c25554cba55cd3c30543cff5ca4fab"
 uuid = "46d2c3a1-f734-5fdb-9937-b9b9aeba4221"
 version = "0.2.4"
 
-[[deps.NLOLibExamples]]
+[[deps.NonlinearOpticsExamples]]
 deps = ["ArgParse", "CairoMakie", "DBInterface", "Dates", "FFTW", "JSON3", "LinearAlgebra", "PrecompileTools", "SHA", "SQLite"]
 path = "."
 uuid = "4f1b50d9-321e-4d59-aa1b-c1fcb34258ce"

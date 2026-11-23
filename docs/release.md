@@ -1,6 +1,6 @@
 # Julia Release Guide
 
-`NLOLib` is distributed as a registered Julia package whose native library comes
+`NonlinearOptics` is distributed as a registered Julia package whose native library comes
 from a [Julia artifact](https://pkgdocs.julialang.org/v1/artifacts/). The
 package itself is pure Julia; the per-platform tarballs holding `nlolib` and its
 runtime dependencies are built by
@@ -18,7 +18,7 @@ Once the package is registered:
 
 ```julia
 using Pkg
-Pkg.add("NLOLib")
+Pkg.add("NonlinearOptics")
 ```
 
 `Pkg` downloads the artifact for the host platform, so nothing needs to be
@@ -36,13 +36,13 @@ A built checkout keeps working with no artifact at all; see
 ```julia
 using Pkg
 Pkg.activate("build/julia_package")
-using NLOLib
-NLOLib.load()
+using NonlinearOptics
+NonlinearOptics.load()
 ```
 
 `src/lib.jl` resolves the library in this order:
 
-1. an explicit path passed to `NLOLib.load(path)`
+1. an explicit path passed to `NonlinearOptics.load(path)`
 2. `ENV["NLOLIB_LIBRARY"]`
 3. the installed `nlolib` artifact, when `Artifacts.toml` binds one for this
    platform and it is present in the depot
@@ -140,7 +140,7 @@ repository: the artifact URLs in `Artifacts.toml` point at this repository's
 releases, so only a tag pushed here has tarballs to bind.
 
 1. Install the [JuliaRegistrator](https://github.com/JuliaRegistries/Registrator)
-   GitHub App on `kinsky-main/NLOLib.jl`.
+   GitHub App on `kinsky-main/NonlinearOptics.jl`.
 2. Comment on the commit that added `Artifacts.toml`:
 
    ```
@@ -176,7 +176,7 @@ or double-publish.
   contains `[noblock]`.
 - The repository is public and GPL-2.0 licensed with a `LICENSE` file at the
   root, which satisfies the license check.
-- AutoMerge installs and imports the package on its own runners. `NLOLib` does
+- AutoMerge installs and imports the package on its own runners. `NonlinearOptics` does
   not open the library at precompile time — `load()` is explicit — so the import
   succeeds on platforms the artifact does not cover.
 

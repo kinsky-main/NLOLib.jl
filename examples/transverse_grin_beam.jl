@@ -10,10 +10,10 @@
 # rest off-axis oscillates rigidly about the axis with pitch 2 pi / g, so the
 # numerical centroid is checked against x_offset cos(g z). Lengths in um.
 
-using NLOLibExamples
+using NonlinearOpticsExamples
 pushfirst!(LOAD_PATH, package_root_from(@__FILE__))
 
-using NLOLib
+using NonlinearOptics
 
 # nlolib-example-parameters: begin
 lambda0 = 1.03

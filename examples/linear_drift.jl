@@ -5,11 +5,11 @@
 # at the group-velocity slope beta2 * chirp, and the records are checked
 # against the exact linear solution.
 
-using NLOLibExamples
+using NonlinearOpticsExamples
 pushfirst!(LOAD_PATH, package_root_from(@__FILE__))
 
 using FFTW
-using NLOLib
+using NonlinearOptics
 
 # nlolib-example-parameters: begin
 n = 1024

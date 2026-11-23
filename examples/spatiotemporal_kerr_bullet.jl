@@ -12,11 +12,11 @@
 # in which self-focusing arrests part of the spread. Lengths in um, times in
 # fs; the envelope has unit peak amplitude.
 
-using NLOLibExamples
+using NonlinearOpticsExamples
 pushfirst!(LOAD_PATH, package_root_from(@__FILE__))
 
 using FFTW
-using NLOLib
+using NonlinearOptics
 
 # nlolib-example-parameters: begin
 lambda0 = 1.55
