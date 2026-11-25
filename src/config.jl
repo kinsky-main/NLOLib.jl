@@ -326,6 +326,10 @@ _progress_info(info::CProgressInfo) = ProgressInfo(
     Float64(info.error),
     Float64(info.elapsed_seconds),
     Float64(info.eta_seconds),
+    Int(info.accepted_steps),
+    Int(info.rejected_steps),
+    Float64(info.min_step_size),
+    Float64(info.max_step_size),
 )
 
 function _validate_record_z(z_values, distance::Float64)

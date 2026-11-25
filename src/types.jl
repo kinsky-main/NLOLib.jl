@@ -181,6 +181,10 @@ struct CProgressInfo
     error::Cdouble
     elapsed_seconds::Cdouble
     eta_seconds::Cdouble
+    accepted_steps::Csize_t
+    rejected_steps::Csize_t
+    min_step_size::Cdouble
+    max_step_size::Cdouble
 end
 
 struct PropagateOptions

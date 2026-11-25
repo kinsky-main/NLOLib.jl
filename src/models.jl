@@ -105,6 +105,10 @@ struct ProgressInfo
     error::Float64
     elapsed_seconds::Float64
     eta_seconds::Float64
+    accepted_steps::Int
+    rejected_steps::Int
+    min_step_size::Float64
+    max_step_size::Float64
 end
 
 """
